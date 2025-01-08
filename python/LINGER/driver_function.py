@@ -35,6 +35,92 @@ def make_Gene_score_df(DEG_dir,score):
 
     return Gene_score_df
 
+def make_Gene_score_df_Drosophira(DEG_dict,score,compaire):
+    Gene_score_df = pd.DataFrame()
+    Gene_order=None
+    for celltype in DEG_dict.keys():
+        ranked_genes = DEG_dict[celltype]
+        ranked_genes = ranked_genes[ranked_genes['X'].str.contains(compaire)]
+        ranked_genes.index = ranked_genes['Gene']
+        if Gene_order is None:
+            Gene_order = ranked_genes.index
+            Gene_score_df.index = Gene_order
+        ranked_genes = ranked_genes[[score]]  # Replace with your ranked list file
+        Gene_score_df[celltype] = ranked_genes.loc[Gene_order]
+    return Gene_score_df
+
+
+def driver_score_drosophira(reg,adjust_method,corr_method, Gene_score_dict, compaire, score):
+
+    if reg.shape[1]<4:
+        reg = reg.drop_duplicates(subset=['RE', 'TF'])
+        reg = reg.pivot(index='RE', columns='TF', values='score').fillna(0)
+    reg = reg.fillna(0)
+
+    # normalize reg
+    cols=reg.sum(axis=0).values
+    rows=reg.sum(axis=1).values
+    E=np.reshape(rows,(rows.shape[0],1))*np.reshape(cols,(1,cols.shape[0]))/rows.sum()
+    #print(E.mean().mean()*10**(-4))
+    E=E+E.mean().mean()*10**(-4)
+    reg=(reg-E)/E
+    reg[reg<0]=0
+    reg = reg.loc[~reg.index.duplicated()]
+    C_result = pd.DataFrame(index=reg.columns, columns=Gene_score_dict.keys())
+    P_result = pd.DataFrame(index=reg.columns, columns=Gene_score_dict.keys())
+    Q_result = pd.DataFrame(index=reg.columns, columns=Gene_score_dict.keys())
+    # each cell type have different gene list, so we need to loop for
+    for celltype in Gene_score_dict.keys():
+        print('cell type '+ celltype)
+        Gene_score = Gene_score_dict[celltype]
+        Gene_score = Gene_score[Gene_score['X'].str.contains(compaire)]
+        Gene_score.index = Gene_score['Gene']
+        overlap=list(set(Gene_score.index)&set(reg.index))
+#        reg=reg.loc[overlap]
+        Gene_score=Gene_score.loc[overlap]
+        reg=reg.loc[Gene_score.index]
+
+
+        print(np.isnan(Gene_score.sum()))
+        c,cp=correlation_FC(np.log(Gene_score[score]).fillna(0).values,reg,corr_method)
+#        C_result=pd.concat([C_result,c],axis=1)
+        C_result[celltype] = c
+        P_result[celltype] = cp
+#        P_result=pd.concat([P_result,cp],axis=1)   
+        cp=cp.fillna(1)  
+        adjusted_p_values = pd.DataFrame(multipletests(cp[0].values, method=adjust_method)[1],index=c.index)
+        Q_result[celltype] = adjusted_p_values
+#        pd.concat([Q_result,adjusted_p_values],axis=1)
+
+    return C_result,P_result,Q_result
+
+
+def diff_Module_cham_simple_drosophila(metadata,celltype_list,S_TG,K,Gene_score_dict,compaire,score):
+    pvalue_all= np.zeros((K, len(celltype_list)))
+    pvalue_all= pd.DataFrame(pvalue_all,index=['M'+str(i+1) for i in range(K)],columns=celltype_list)
+    tvalue_all= np.zeros((K, len(celltype_list)))
+    tvalue_all= pd.DataFrame(tvalue_all,index=['M'+str(i+1) for i in range(K)],columns=celltype_list)
+#    for k in range(len(celltype)):
+    for celltype in celltype_list:
+#        temp=Exp_TG.iloc[:,metadata['celltype'].values==celltype]
+ #       aud_idxtemp=metadata[(metadata['celltype'].values==celltype)]['group'].values
+#        key='C'+celltype+'_anovas'
+        key='C'+str(celltype)+'_anovas'
+        Gene_score=Gene_score_dict[key]
+        Gene_score = Gene_score[Gene_score['X'].str.contains(compaire)]
+        Gene_score.index = Gene_score['Gene']
+        for i in range(1,K+1):
+            print("Module",i)
+            Module_genes = S_TG[S_TG['Module']==i]
+            overlap=list(set(Gene_score.index)&set(Module_genes.index))
+            adj_p_values = Gene_score.loc[overlap, score]
+            pvalue_all.loc['M'+str(i),celltype]= (adj_p_values < 0.1).sum() / len(adj_p_values)
+            #            adj_p_values = DEG_score_dict[celltype].loc[S_TG['Module']==i]
+#            adj_p_values = DEG_score_dict[celltype].loc[S_TG['Module']==i, celltype]
+        # Print the results
+    return pvalue_all
+
+
 def driver_score_cham(reg,adjust_method,corr_method, Gene_score):
 
     if reg.shape[1]<4:
@@ -207,6 +293,86 @@ def Module_trans_cham(trans_reg,metadata,Gene_score_df,K_list,p_list,save_dir,GW
                 significant_num = diff_Module_cham_simple(metadata,celltype_list,S_TG,K,Gene_score_df)
                 nlog_P = significant_num
                 p_value_file =save_dir + "/Module_genes/K"+ str(K) +"p" + str(p) +"pvalue.csv"
+            else:
+                pvalue_all,tvalue_all=diff_Module_cham(metadata,celltype_list,S_TG,K,Gene_score_df)
+                nlog_P = -np.log10(pvalue_all)
+                p_value_file =save_dir + "/Module_genes/K"+ str(K) +"p" + str(p) +"nlog10_p.csv"
+
+            if not os.path.exists(save_dir+ "/Module_genes/"):
+                os.makedirs(save_dir+ "/Module_genes/")
+
+            nlog_P.to_csv(p_value_file)
+            S_TG.to_csv(save_dir + "/Module_genes/K"+ str(K) +"p" + str(p) +"TG.csv")
+            S_TF.to_csv(save_dir +  "/Module_genes/K"+ str(K) +"p" + str(p) +"TF.csv")
+
+            figure_dir = save_dir + '/figure/LINGER_module_compare/'
+            if not os.path.exists(figure_dir):
+                os.makedirs(figure_dir)
+
+            plt.figure(figsize=(10, 6))
+            sns.heatmap(nlog_P.T, cmap="viridis")
+            plt.title("K"+ str(K) +"p" + str(p))
+            plt.savefig((figure_dir + ("K"+ str(K) +"p" + str(p)) + "Module_genes.png"),dpi=300)
+            plt.clf()
+
+
+
+
+def Module_trans_cham_drosophira(trans_reg,metadata,Gene_score_dict,compaire,score,K_list,p_list,save_dir,GWASfile=None,GWAS_score=None,simple=True):
+    import numpy as np
+    from scipy import stats
+
+
+    TFset=trans_reg.columns
+    TGset=trans_reg.index
+
+    R1 = stats.zscore(trans_reg,1);R1[np.isnan(R1)] = 0.0
+    R2 = stats.zscore(trans_reg,0);R2[np.isnan(R2)] = 0.0
+    from sklearn.preprocessing import quantile_transform
+    Z=R1+R2
+    Z[Z<0]=0  
+    if GWAS_score is not None:
+        alpha = 1
+        TF_GWAS_score = pd.DataFrame((~Z.columns.isin(GWAS_score.index)).astype(int), index = Z.columns)
+        tmp_Gidx = TF_GWAS_score[TF_GWAS_score[0]==0].index
+        TF_GWAS_score[TF_GWAS_score[0]==0] = GWAS_score.loc[tmp_Gidx]
+        TF_GWAS_score = (1 - (alpha * (1 + np.log10(TF_GWAS_score))))
+
+        TG_GWAS_score = pd.DataFrame((~Z.index.isin(GWAS_score.index)).astype(int), index = Z.index)
+        tmp_Gidx = TG_GWAS_score[TG_GWAS_score[0]==0].index
+        TG_GWAS_score[TG_GWAS_score[0]==0] = GWAS_score.loc[tmp_Gidx]
+        TG_GWAS_score = (1 - (alpha * (1 + np.log10(TG_GWAS_score))))
+        #TG_GWAS_score = (1 -np.log10(TG_GWAS_score))/2
+
+        TF_score_matrix = np.diag(TF_GWAS_score.values.flatten())
+        TG_score_matrix = np.diag(TG_GWAS_score.values.flatten())
+
+        old_Z = Z
+        Z = TG_score_matrix @ Z# @ TF_score_matrix
+
+
+    celltype_list = metadata['celltype'].unique()
+    celltype_list = metadata['cluster'].unique()
+    print('identify modules......')
+    from sklearn.decomposition import NMF
+
+    for K in K_list:
+        nmf = NMF(n_components=K, init='random', random_state=0,max_iter=1000)
+        W = nmf.fit_transform(Z)
+        H = nmf.components_
+        for p in p_list:
+            [S_TG,W2]=assignLabel(W,p,K);
+            [S_TF,H2]=assignLabel(H.T,p,K);
+            S_TG=pd.DataFrame(S_TG,index=TGset,columns=['Module'])
+            S_TF=pd.DataFrame(S_TF,index=TFset,columns=['Module'])
+            
+            print('differential modules......')
+            if simple:
+                significant_num = diff_Module_cham_simple_drosophila(metadata,celltype_list,S_TG,K,Gene_score_dict,compaire,score)
+
+                nlog_P = significant_num
+                p_value_file =save_dir + "/Module_genes/K"+ str(K) +"p" + str(p) +"pvalue.csv"
+                #p_value_file =save_dir + "/Module_genes/"+ compaire+ "_" +score + "_K"+ str(K) +"p" + str(p) +"pvalue.csv"
             else:
                 pvalue_all,tvalue_all=diff_Module_cham(metadata,celltype_list,S_TG,K,Gene_score_df)
                 nlog_P = -np.log10(pvalue_all)
