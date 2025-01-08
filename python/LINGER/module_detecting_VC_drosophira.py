@@ -26,8 +26,9 @@ Gene_score_df = make_Gene_score_df(DEG_dir,score)
 
 
 save_dir = Datadir + 'Module_result_cham/'
+save_dir = Datadir + 'Module_result_nosex_cham/'
 score = 'Pr..F.'
-compaire = "Line:Treatment\."
 compaire = "Line:Treatment:Sex\."
+compaire = "Line:Treatment\."
 
 Module_trans_cham_drosophira(trans_reg,metadata,Gene_score_dict,compaire,score,K_list,p_list,save_dir,GWASfile=None,GWAS_score=None,simple=True)
