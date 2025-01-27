@@ -3,6 +3,92 @@ import numpy as np
 from statsmodels.stats.multitest import multipletests
 import os
 
+
+
+
+def assignLabel(W,p):
+    W=W/(W.sum(axis=0)+1**(-6))
+    W2=W.T/(W.T.sum(axis=0)+ 10**(-4));
+    max_values = np.max(W2, axis=0)
+    max_indices = np.argmax(W2, axis=0)
+    quantile = np.percentile(max_values, p*100)
+    S_gene=W[:,0];
+    S_gene[:]=0
+    for i in range(K):
+        S_gene[(max_values>quantile)&(max_indices==i)]=i+1
+    return S_gene,W2 
+
+
+def select_group(meta_data,male,pref):
+    sex_idx = meta_data['male'] == male
+    Line_idx = meta_data['prefer'] == pref
+    selected_index = metadata[sex_idx & Line_idx].index
+    return selected_index
+
+def transform_R_analysis_pseudobulk(R_pseudobulk,celltype_list):
+    pseudobulk_dict = {}
+    for celltype in celltype_list:
+        sufix = celltype + "-"
+        celltype_cols = R_pseudobulk.filter(like=sufix)  # Selects columns containing 'Astrocyte-'
+        celltype_cols.columns = celltype_cols.columns.str.extract(r'(\d+)$')[0]
+        pseudobulk_dict[celltype] = celltype_cols
+
+    return pseudobulk_dict
+
+def calculate_logFC_R_analysis_pseudobulk(pseudobulk_dict,metadata):
+    celltype_list = pseudobulk_dict.keys()
+    FC_df = pd.DataFrame(columns=celltype_list)
+    for celltype in pseudobulk_dict.keys():
+        print(celltype)
+        print(pseudobulk_dict[celltype])
+        tmp = metadata[metadata['celltype']==celltype]
+        Heroin_idx = tmp['sample_name'][tmp['group']==1]
+        Control_idx = tmp['sample_name'][tmp['group']==0]
+        Mean1 = pseudobulk_dict[celltype][Heroin_idx.astype(str)].mean(axis=1)
+        Mean0 = pseudobulk_dict[celltype][Control_idx.astype(str)].mean(axis=1)
+        FC = pd.DataFrame(Mean1/Mean0)
+        FC_df[celltype] = FC[0]
+    return FC_df
+
+
+def calculate_logFC(Exp_TG,aud_idx,celltype):
+#    aud_idx1=aud_idx.reset_index()
+    celltype_barcode = aud_idx[aud_idx['celltype']==celltype].index
+    aud_barcode = aud_idx[aud_idx['group']==1].index
+    C_barcode = aud_idx[aud_idx['group']==0].index
+    celltype_aud_barcode = celltype_barcode[celltype_barcode.isin(aud_barcode)]
+    celltype_ctl_barcode = celltype_barcode[~celltype_barcode.isin(aud_barcode)]
+#    celltype_aud_barcode = celltype_barcode[celltype_barcode.isin(aud_barcode)]
+#    celltype_ctl_barcode = celltype_barcode[~celltype_barcode.isin(aud_barcode)]
+    Mean1=Exp_TG[celltype_aud_barcode].mean(axis=1)+10**(-6)
+    Mean0=Exp_TG[celltype_ctl_barcode].mean(axis=1)+10**(-6)
+    FC=pd.DataFrame(Mean1-Mean0)
+    return FC
+
+
+
+def calculate_logFC_old(Exp_TG,aud_idx,celltype):
+#    aud_idx1=aud_idx.reset_index()
+    celltype_barcode = aud_idx[aud_idx['celltype']==celltype].index
+    aud_barcode = aud_idx[aud_idx['group']==1].index
+    C_barcode = aud_idx[aud_idx['group']==0].index
+    celltype_aud_barcode = celltype_barcode[celltype_barcode.isin(aud_barcode)]
+    celltype_ctl_barcode = celltype_barcode[~celltype_barcode.isin(aud_barcode)]
+#    celltype_aud_barcode = celltype_barcode[celltype_barcode.isin(aud_barcode)]
+#    celltype_ctl_barcode = celltype_barcode[~celltype_barcode.isin(aud_barcode)]
+    Mean1=Exp_TG[celltype_aud_barcode].mean(axis=1)+10**(-6)
+    Mean0=Exp_TG[celltype_ctl_barcode].mean(axis=1)+10**(-6)
+    FC=pd.DataFrame(Mean1-Mean0)
+    return FC
+
+def make_logFC_df(Exp_TG,aud_idx,celltype_list):
+    FC_df = pd.DataFrame()
+    for celltype in celltype_list:
+        FC = calculate_logFC(Exp_TG,aud_idx,celltype)
+        FC_df[celltype] = FC[0]
+    return FC_df
+
+
 def correlation_FC(x,y,method):
     from scipy import stats
     # Loop through each column of y and calculate correlation with x
@@ -121,7 +207,7 @@ def diff_Module_cham_simple_drosophila(metadata,celltype_list,S_TG,K,Gene_score_
     return pvalue_all
 
 
-def driver_score_cham(reg,adjust_method,corr_method, Gene_score):
+def driver_score_cham(reg, Gene_score, adjust_method,corr_method):
 
     if reg.shape[1]<4:
         reg = reg.drop_duplicates(subset=['RE', 'TF'])
@@ -147,10 +233,11 @@ def driver_score_cham(reg,adjust_method,corr_method, Gene_score):
     P_result = pd.DataFrame(index=reg.columns, columns=Gene_score.columns)
     Q_result = pd.DataFrame(index=reg.columns, columns=Gene_score.columns)
     for celltype in Gene_score.columns:
-        print('cell type '+ celltype)
+ #       print('cell type '+ celltype)
 #        Gene_score=Gene_score.loc[reg.index]
-        print(np.isnan(Gene_score.sum()))
-        c,cp=correlation_FC(np.log(Gene_score[celltype]).fillna(0).values,reg,corr_method)
+#        print(np.isnan(Gene_score.sum()))
+#        c,cp=correlation_FC(np.log(Gene_score[celltype]).fillna(0).values,reg,corr_method)
+        c,cp=correlation_FC((Gene_score[celltype]).fillna(0).values,reg,corr_method)
 #        C_result=pd.concat([C_result,c],axis=1)
         C_result[celltype] = c
         P_result[celltype] = cp
@@ -394,3 +481,38 @@ def Module_trans_cham_drosophira(trans_reg,metadata,Gene_score_dict,compaire,sco
             plt.title("K"+ str(K) +"p" + str(p))
             plt.savefig((figure_dir + ("K"+ str(K) +"p" + str(p)) + "Module_genes.png"),dpi=300)
             plt.clf()
+
+
+def driver_score_cham(reg, Gene_score, adjust_method='bonferroni',corr_method='pearsonr'):
+    if reg.shape[1]<4:
+        reg = reg.drop_duplicates(subset=['RE', 'TF'])
+        reg = reg.pivot(index='RE', columns='TF', values='score').fillna(0)
+    reg = reg.fillna(0)
+    # normalize reg
+    cols=reg.sum(axis=0).values
+    rows=reg.sum(axis=1).values
+    E=np.reshape(rows,(rows.shape[0],1))*np.reshape(cols,(1,cols.shape[0]))/rows.sum()
+    #print(E.mean().mean()*10**(-4))
+    E=E+E.mean().mean()*10**(-4)
+    reg=(reg-E)/E
+    reg[reg<0]=0
+    reg = reg.loc[~reg.index.duplicated()]
+    overlap=list(set(Gene_score.index)&set(reg.index))
+    Gene_score=Gene_score.loc[overlap]
+    reg=reg.loc[Gene_score.index]
+
+    C_result = pd.DataFrame(index=reg.columns, columns=Gene_score.columns)
+    P_result = pd.DataFrame(index=reg.columns, columns=Gene_score.columns)
+    Q_result = pd.DataFrame(index=reg.columns, columns=Gene_score.columns)
+    for celltype in Gene_score.columns:
+#        print('cell type '+ celltype)
+#        Gene_score=Gene_score.loc[reg.index]
+#        print(np.isnan(Gene_score.sum()))
+        c,cp=correlation_FC(Gene_score[celltype].fillna(0).values,reg,corr_method)
+        C_result[celltype] = c
+        P_result[celltype] = cp
+        cp=cp.fillna(1)  
+        adjusted_p_values = pd.DataFrame(multipletests(cp[0].values, method=adjust_method)[1],index=c.index)
+        Q_result[celltype] = adjusted_p_values
+
+    return C_result,P_result,Q_result
