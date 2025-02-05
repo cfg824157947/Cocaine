@@ -24,11 +24,16 @@ for entry in file_list:
     print(driver_result_file)
     Cdf = pd.read_csv(driver_result_file, index_col=0)
     Qdf = pd.read_csv(driver_result_file.replace("C_result", "Q_result"), index_col=0)
-    selected_elements_df = ((Cdf >0.1)&(Qdf < 0.01))
-    filtered_terms_df = filter_terms(selected_elements_df)
-    # Save the DataFrame to a CSV file
-    result_file = driver_result_file.replace("C_result", "filtered_terms")
-    filtered_terms_df.to_csv(result_file, index=False)
+    up_down_list = ['up', 'down']
+    for up_down in up_down_list:
+        if up_down == 'up':
+            selected_elements_df = ((Cdf > 0.1) & (Qdf < 0.01))
+        else:
+            selected_elements_df = ((Cdf < -0.1) & (Qdf < 0.01))
+        filtered_terms_df = filter_terms(selected_elements_df)
+        # Save the DataFrame to a CSV file
+        result_file = driver_result_file.replace("C_result", ("filtered_terms_"+up_down))
+        filtered_terms_df.to_csv(result_file, index=False)
 
 # Save the DataFrame to a CSV file
 filtered_terms_df.to_csv("filtered_GSEA_terms.csv", index=False)

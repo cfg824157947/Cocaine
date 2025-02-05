@@ -22,7 +22,7 @@ def assignLabel(W,p):
 def select_group(meta_data,male,pref):
     sex_idx = meta_data['male'] == male
     Line_idx = meta_data['prefer'] == pref
-    selected_index = metadata[sex_idx & Line_idx].index
+    selected_index = meta_data[sex_idx & Line_idx].index
     return selected_index
 
 def transform_R_analysis_pseudobulk(R_pseudobulk,celltype_list):

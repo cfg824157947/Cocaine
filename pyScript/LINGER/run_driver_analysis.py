@@ -1,7 +1,7 @@
-#import sys
-#sys.path.append('/project/zduren/durenlab/palmetto/cham/Heroin/script/pyScript/LINGER')
+import sys
+sys.path.append('/data2/duren_lab/cham/cocain/scripts/python/LINGER')
 
-#from driver_function import *  # Import specific items
+from driver_function import *  # Import specific items
 
 
 import pandas as pd
