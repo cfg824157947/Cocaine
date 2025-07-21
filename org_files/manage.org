@@ -1,0 +1,112 @@
+#+TITLE: Convert Peak BED to h5ad and Sparse Matrix
+#+AUTHOR: Fengge Chang
+#+DATE: <2025-07-21>
+#+OPTIONS: toc:nil
+
+* Description
+This document describes the workflow and code used to convert peak-by-cell fragment count files (BED-like TSV) into:
+1. A `.h5ad` file for Python-based workflows (e.g., Scanpy)
+2. A sparse matrix folder (10X-style) for Seurat (`Read10X()` in R)
+
+* Input File Format
+Each input file should be a tab-separated file with the following 5 columns:
+
+| chrom | start | end | barcode | count |
+|-------+-------+-----+---------+-------|
+
+Example:
+#+begin_example
+2L	10001670	10002091	AAATGCCTCCTCACAC-28	2
+2L	10001670	10002091	AACCTCACAAGCTACC-13	1
+#+end_example
+
+* Output
+- `.h5ad` file: stores the AnnData object
+- Sparse matrix folder:
+  - =matrix.mtx.gz=
+  - =barcodes.tsv.gz=
+  - =features.tsv.gz=
+
+* R Usage Example
+#+begin_src R
+library(Seurat)
+data <- Read10X(data.dir = "sparse_matrix/")
+seurat_obj <- CreateSeuratObject(counts = data)
+#+end_src
+
+* Python Script
+#+begin_src python :tangle convert_peak_to_adata.py
+#!/usr/bin/env python3
+
+import os
+import argparse
+import pandas as pd
+import scipy.sparse as sp
+import scipy.io
+import anndata as ad
+import gzip
+import shutil
+
+def convert_tsv_to_adata_and_sparse(tsv_path, h5ad_path, outdir, feature_type="peak"):
+    df = pd.read_csv(tsv_path, sep='\t', header=None,
+                     names=['chrom', 'start', 'end', 'barcode', 'count'])
+    df['region'] = df['chrom'].astype(str) + ":" + df['start'].astype(str) + "-" + df['end'].astype(str)
+    df = df[['region', 'barcode', 'count']]
+
+    row_index = pd.Categorical(df['region'])
+    col_index = pd.Categorical(df['barcode'])
+
+    X = sp.coo_matrix(
+        (df['count'], (row_index.codes, col_index.codes)),
+        shape=(len(row_index.categories), len(col_index.categories))
+    ).tocsr()
+
+    adata = ad.AnnData(X.T)
+    adata.var_names = row_index.categories
+    adata.obs_names = col_index.categories
+    adata.write(h5ad_path)
+
+    os.makedirs(outdir, exist_ok=True)
+    scipy.io.mmwrite(f"{outdir}/matrix.mtx", adata.X.T)
+    pd.Series(adata.obs_names).to_csv(f"{outdir}/barcodes.tsv", index=False, header=False)
+
+    features = pd.DataFrame({
+        "feature_id": adata.var_names,
+        "feature_name": adata.var_names,
+        "feature_type": feature_type
+    })
+    features.to_csv(f"{outdir}/features.tsv", sep="\t", index=False, header=False)
+
+    for fn in ["matrix.mtx", "barcodes.tsv", "features.tsv"]:
+        with open(f"{outdir}/{fn}", 'rb') as f_in:
+            with gzip.open(f"{outdir}/{fn}.gz", 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(f"{outdir}/{fn}")
+
+    print(f"✅ Done: {h5ad_path} and sparse folder: {outdir}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert BED-style peak count TSV to h5ad and sparse matrix")
+    parser.add_argument('--tsv', required=True, help="Input .tsv file with chrom, start, end, barcode, count")
+    parser.add_argument('--h5ad', required=True, help="Output path for .h5ad")
+    parser.add_argument('--outdir', required=True, help="Output directory for sparse matrix")
+    parser.add_argument('--feature_type', default="peak", help="Feature type for features.tsv")
+
+    args = parser.parse_args()
+    convert_tsv_to_adata_and_sparse(args.tsv, args.h5ad, args.outdir, args.feature_type)
+#+end_src
+
+* Execution Example
+#+begin_src sh
+python convert_peak_to_adata.py \
+  --tsv 0.tsv \
+  --h5ad 0.h5ad \
+  --outdir 0_sparse_matrix \
+  --feature_type peak
+#+end_src
+
+* Log
+| File        | Cells | Peaks | Date       |
+|-------------+-------+-------+------------|
+| 0.tsv       | 11129 | 11892 | 2025-07-21 |
+| ...         | ...   | ...   | ...        |
