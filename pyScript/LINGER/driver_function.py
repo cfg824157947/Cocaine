@@ -19,9 +19,13 @@ def assignLabel(W,p):
     return S_gene,W2 
 
 
-def select_group(meta_data,male,pref):
-    sex_idx = meta_data['male'] == male
-    Line_idx = meta_data['prefer'] == pref
+def select_group(meta_data,male=None,pref=None,Line=None):
+    if male is not None:
+        sex_idx = meta_data['male'] == male
+    if pref is not None:
+        Line_idx = meta_data['prefer'] == pref
+    if Line is not None:
+        Line_idx = meta_data['Line'] == Line
     selected_index = meta_data[sex_idx & Line_idx].index
     return selected_index
 

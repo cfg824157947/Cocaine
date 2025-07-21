@@ -19,6 +19,7 @@ TG_pseudobulk = pd.read_csv((Datadir + "data/TG_pseudobulk.tsv"), index_col=0)
 #Gene_score = pd.read_csv("/project/zduren/durenlab/palmetto/cham/Heroin/ori_data/GENE_score_uniq.tsv" ,sep = '\t', index_col=0)
 K_list=[7,8,9]
 p_list=[0.6,0.7]
+K=25
 
 trans_reg=pd.read_csv(outdir+'cell_population_trans_regulatory.txt',sep='\t',index_col=0)
 
@@ -65,37 +66,88 @@ W_df=pd.DataFrame(W,index=trans_reg.index,columns=['M'+str(i+1) for i in range(K
 
 
 #driver_result_dir = Datadir + "driver_results/"
-driver_result_dir = Datadir + "LINE_result_cham/driver_results/"
+driver_result_dir = Datadir + "LINE_result_cham/driver_results/permu/"
 male_list = metadata['male'].unique()
 prefer_list = metadata['prefer'].unique()
 Line_list = metadata['Line'].unique()
 celltype_list = metadata['celltype'].unique()
 K=25
-C_result_dict= {}
-Q_result_dict= {}
+C_result_dict_mean= {}
+Q_result_dict_mean= {}
 
+C_result_dict_std= {}
+Q_result_dict_std= {}
+permu_time = 30
 for male in male_list:
     if male == 1:
         sex = 'Male'
     else:
         sex = 'Female'
-#    for prefer in prefer_list:
+    #    for prefer in prefer_list:
     for prefer in Line_list:
 #        idx = select_group(metadata,male,prefer)
         idx = select_group(metadata,male=male,Line=prefer)
         df = make_logFC_df(TG_pseudobulk[idx],metadata.loc[idx],celltype_list)
         Gene_score = df.loc[:,(df.isna().sum() == 0)]
-        C_result_RNA,P_result_RNA,Q_result_RNA=driver_score_cham(W_df, Gene_score)
-        
-        result_file = driver_result_dir + "Module_C_result_RNA_" + sex + "_" + prefer + "_" + score + ".csv"
-        C_result_RNA.fillna(0).to_csv(result_file)
-        C_result_dict[sex+'_'+prefer] = C_result_RNA
-        result_file = driver_result_dir + "Module_P_result_RNA_" + sex + "_" + prefer + "_" + score + ".csv"
-        P_result_RNA.fillna(1).to_csv(result_file)
-        result_file = driver_result_dir + "Module_Q_result_RNA_" + sex + "_" + prefer + "_" + score + ".csv"
-        Q_result_dict[sex+'_'+prefer] = Q_result_RNA
-        Q_result_RNA.fillna(1).to_csv(result_file)
-        
+        C_result_RNA_mean = None
+        P_result_RNA_mean = None
+        Q_result_RNA_mean = None
+        C_result_std = None
+        P_result_std = None
+        Q_result_std = None
+        for iter in range(permu_time):
+            permu_W_df = net_col_permute(W_df)
+            C_result_RNA,P_result_RNA,Q_result_RNA=driver_score_cham(permu_W_df, Gene_score)
+            if C_result_RNA_mean is None:
+                C_result_RNA_mean = C_result_RNA
+                P_result_RNA_mean = P_result_RNA
+                Q_result_RNA_mean = Q_result_RNA
+                C_result_std = C_result_RNA * C_result_RNA
+                P_result_std = P_result_RNA * P_result_RNA
+                Q_result_std = Q_result_RNA * Q_result_RNA
+            else:
+                C_result_RNA_mean += C_result_RNA
+                P_result_RNA_mean += P_result_RNA
+                Q_result_RNA_mean += Q_result_RNA
+                C_result_std += C_result_RNA * C_result_RNA
+                P_result_std += P_result_RNA * P_result_RNA
+                Q_result_std += Q_result_RNA * Q_result_RNA
+
+        C_result_RNA_mean = C_result_RNA_mean / permu_time
+        C_result_std = C_result_std / permu_time - C_result_RNA_mean * C_result_RNA_mean
+        C_result_std = np.sqrt(C_result_std)
+        result_file = driver_result_dir + "Module_C_result_RNA_mean_" + sex + "_" + prefer + "_" + score + ".csv"
+        C_result_RNA_mean.fillna(0).to_csv(result_file)
+        C_result_dict_mean[sex+'_'+prefer] = C_result_RNA_mean
+        C_result_dict_std[sex+'_'+prefer] = C_result_std
+        result_file = driver_result_dir + "Module_C_result_RNA_std_" + sex + "_" + prefer + "_" + score + ".csv"
+        C_result_std.to_csv(result_file)
+
+
+        P_result_RNA_mean = P_result_RNA_mean / permu_time
+        P_result_std = P_result_std / permu_time - P_result_RNA_mean * P_result_RNA_mean
+        P_result_std = np.sqrt(P_result_std)
+        result_file = driver_result_dir + "Module_P_result_RNA_mean_" + sex + "_" + prefer + "_" + score + ".csv"
+        P_result_RNA_mean.fillna(1).to_csv(result_file)
+        result_file = driver_result_dir + "Module_P_result_RNA_std_" + sex + "_" + prefer + "_" + score + ".csv"
+        P_result_std.to_csv(result_file)
+
+
+
+        #result_file = driver_result_dir + "Module_P_result_RNA_mean_" + sex + "_" + prefer + "_" + score + ".csv"
+        #P_result_RNA.fillna(1).to_csv(result_file)
+
+        Q_result_RNA_mean = Q_result_RNA_mean / permu_time
+        Q_result_std = Q_result_std / permu_time - Q_result_RNA_mean * Q_result_RNA_mean
+        Q_result_std = np.sqrt(Q_result_std)
+        result_file = driver_result_dir + "Module_Q_result_RNA_mean_" + sex + "_" + prefer + "_" + score + ".csv"
+        Q_result_RNA_mean.fillna(0).to_csv(result_file)
+        Q_result_dict_mean[sex+'_'+prefer] = Q_result_RNA_mean
+        Q_result_dict_std[sex+'_'+prefer] = Q_result_std
+        result_file = driver_result_dir + "Module_Q_result_RNA_std_" + sex + "_" + prefer + "_" + score + ".csv"
+        Q_result_std.to_csv(result_file)
+
+        C_result_RNA = C_result_RNA_mean
         row_linkage = linkage(C_result_RNA, method='average', metric='euclidean')  # Row clustering
         col_linkage = linkage(C_result_RNA.T, method='average', metric='euclidean')  # Column clustering
         row_clusters = pd.Series(fcluster(row_linkage, t=5, criterion='maxclust'))
@@ -110,7 +162,7 @@ for male in male_list:
             figsize=(15, 15),
             cbar_pos=(1.05, 0.2, 0.03, 0.7)  # Extended margin for color bar
             )
-        title = "Module_C_result_RNA_" + sex + "_" + prefer + "_" + score 
+        title = "Module_C_result_RNA_mean_" + sex + "_" + prefer + "_" + score 
         fig_file = driver_result_dir + title + ".png"
         plt.title(title)
         clustermap.savefig(fig_file, dpi=300)
@@ -124,7 +176,7 @@ for male in male_list:
             figsize=(15, 15),
             cbar_pos=(1.05, 0.2, 0.03, 0.7)  # Extended margin for color bar
             )
-        title = "Module_Q_result_RNA_" + sex + "_" + prefer + "_" + score 
+        title = "Module_Q_result_RNA_mean_" + sex + "_" + prefer + "_" + score 
         plt.title(title)
         fig_file = driver_result_dir + title + ".png"
         clustermap.savefig(fig_file, dpi=300)
