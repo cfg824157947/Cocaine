@@ -173,10 +173,13 @@ sc_metadata_file = '/project/zduren/durenlab/cham/cocain/Data/meta_data3.tsv'
 metadata = pd.read_csv(sc_metadata_file, sep='\t', index_col=0)
 pseudo_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/PseudoBulk/LINGER/"
 
-for random_seed in range(100):
+for random_seed in range(27,50):
     for tempsample in samplelist:
-        adata_RNAtemp=adata_RNA[adata_RNA.obs['sample']==tempsample]
-        adata_ATACtemp=adata_ATAC[adata_ATAC.obs['sample']==tempsample]
+        adata_RNAtemp = adata_RNA[adata_RNA.obs['sample'] == tempsample].copy()
+        adata_ATACtemp = adata_ATAC[adata_ATAC.obs['sample'] == tempsample].copy()
+
+#        adata_RNAtemp=adata_RNA[adata_RNA.obs['sample']==tempsample]
+#        adata_ATACtemp=adata_ATAC[adata_ATAC.obs['sample']==tempsample]
         TG_pseudobulk_temp,RE_pseudobulk_temp=pseudo_bulk(adata_RNAtemp,adata_ATACtemp,singlepseudobulk,random_seed)                
         TG_pseudobulk=pd.concat([TG_pseudobulk, TG_pseudobulk_temp], axis=1)
         RE_pseudobulk=pd.concat([RE_pseudobulk, RE_pseudobulk_temp], axis=1)
