@@ -173,7 +173,9 @@ sc_metadata_file = '/project/zduren/durenlab/cham/cocain/Data/meta_data3.tsv'
 metadata = pd.read_csv(sc_metadata_file, sep='\t', index_col=0)
 pseudo_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/PseudoBulk/LINGER/"
 
-for random_seed in range(27,50):
+for random_seed in range(100):
+    TG_pseudobulk = pd.DataFrame()  # ← reset
+    RE_pseudobulk = pd.DataFrame()  # ← reset
     for tempsample in samplelist:
         adata_RNAtemp = adata_RNA[adata_RNA.obs['sample'] == tempsample].copy()
         adata_ATACtemp = adata_ATAC[adata_ATAC.obs['sample'] == tempsample].copy()
@@ -197,5 +199,4 @@ for random_seed in range(27,50):
     RE_pseudobulk.to_csv(pseudo_RE_path)
     metadata.to_csv(pseudo_meta_path)
     print(f"Pseudo-bulk data for random seed {random_seed} saved.")
-
 
