@@ -1,0 +1,35 @@
+* Method
+** Outline
+- In each line calculate logFC for each gene between Coc and Suc group
+*** LogFC
+- Calculate correlation of logFC between each line for check the similarity in each line.
+- Separate similarity to two group Within group (correlation between same preference) and 
+  Between group (correlation between different preference)
+- Do test to check the significance of the difference between the two groups
+  
+*** Differential TF activity
+- Calculate DTFA score for each TF in each line, where DTFA score is weighted sum of logFC of each gene regulated by the TF.
+- Calculate correlation of DTFA score between each line for check the similarity in each line.
+- Separate similarity to two group Within group (correlation between same preference) and 
+  Between group (correlation between different preference)
+- Do test to check the significance of the difference between the two groups
+
+** Draft
+#+BEGIN_EXPORT latex
+For each genetic line, we calculated gene-level log fold change (logFC) between the cocaine (Coc) and sucrose (Suc) groups.
+To assess similarity of treatment effects across lines, we computed correlations of logFC values for each pair of lines.
+These correlations were grouped into within-group (same preference) and between-group (different preference) categories.
+Statistical testing was performed to evaluate whether within-group correlations were significantly higher than between-group correlations.
+In this analysis we found that there are no significant differences between the two groups.
+This suggests that the treatment effects on gene expression are similar across lines, regardless of their preference for cocaine or sucrose.
+
+For transcription factor (TF) analysis, we computed a Differential TF Activity (DTFA) score for each TF in each line.
+The DTFA score is a weighted sum of logFC values of its target genes.
+Similar to gene-level analysis, we assessed the pairwise correlation of DTFA scores across lines,
+separated them into within- and between-group categories, and tested for significant differences.
+In the analysis of DTFA score, we found that there are significant differences between the two groups,
+indicating that TF activity patterns differ more between preferences than within them.
+#+END_EXPORT
+# I want to merge the previouse sentecce
+
+
