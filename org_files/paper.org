@@ -15,7 +15,6 @@
 - Do test to check the significance of the difference between the two groups
 
 ** Draft
-#+BEGIN_EXPORT latex
 For each genetic line, we calculated gene-level log fold change (logFC) between the cocaine (Coc) and sucrose (Suc) groups.
 To assess similarity of treatment effects across lines, we computed correlations of logFC values for each pair of lines.
 These correlations were grouped into within-group (same preference) and between-group (different preference) categories.
@@ -29,7 +28,5 @@ Similar to gene-level analysis, we assessed the pairwise correlation of DTFA sco
 separated them into within- and between-group categories, and tested for significant differences.
 In the analysis of DTFA score, we found that there are significant differences between the two groups,
 indicating that TF activity patterns differ more between preferences than within them.
-#+END_EXPORT
-# I want to merge the previouse sentecce
 
 
