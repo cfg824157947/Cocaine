@@ -10,10 +10,15 @@ import gzip
 import shutil
 
 def convert_tsv_to_adata_and_sparse(tsv_path, h5ad_path, outdir, feature_type="peak"):
-    df = pd.read_csv(tsv_path, sep='\t', header=None,
-                     names=['chrom', 'start', 'end', 'barcode', 'count'])
-    df['region'] = df['chrom'].astype(str) + ":" + df['start'].astype(str) + "-" + df['end'].astype(str)
-    df = df[['region', 'barcode', 'count']]
+    df = pd.read_csv(tsv_path, sep='\t', header=None)
+    if df.shape[1] == 3:
+        df.columns = ['region', 'barcode', 'count']
+    elif df.shape[1] == 5:
+        df.columns = ['chrom', 'start', 'end', 'barcode', 'count']
+        df['region'] = df['chrom'].astype(str) + ":" + df['start'].astype(str) + "-" + df['end'].astype(str)
+        df = df[['region', 'barcode', 'count']]
+    else:
+        raise ValueError("Input TSV must have 3 or 5 columns: 'region barcode count' or 'chrom start end barcode count'")
 
     row_index = pd.Categorical(df['region'])
     col_index = pd.Categorical(df['barcode'])
