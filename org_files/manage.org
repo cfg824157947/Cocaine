@@ -204,3 +204,11 @@ done
 
 
 
+
+* Future work
+
+- [X] make networks (cytoscape)
+- [ ] generate networks figure
+- [ ] Downstream GO
+- [ ] Generate GO figure
+
