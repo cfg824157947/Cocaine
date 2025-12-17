@@ -1,0 +1,59 @@
+configfile: "SH10X_multiome_09_16.yaml"
+
+SAMPLES=sorted(glob_wildcards(config["SOURCE"]+"/{samples}"+config["EXT"]).samples)
+SAMPLES_NF=[]
+import re
+for item in SAMPLES:
+	var1=re.sub('_gex_S[0-9]_L00[1-2]_[RI][1-2]','',str(item))
+	SAMPLES_NF.append(var1)
+
+SAMPLES_SET = set(SAMPLES_NF)
+SAMPLES_ID = list(SAMPLES_SET)
+
+rule all:
+	input:
+		expand(config["DEST"]+"/{SAMPLES_ID}/{SAMPLES_ID}_complete.txt",SAMPLES_ID=SAMPLES_ID)
+
+rule make_libraries:
+	params:
+		GEX_FASTQ=config["SOURCE"],
+		GEX_SAMPLES_ID="{SAMPLES_ID}_gex",
+		ATAC_FASTQ=config["ATAC_INPUT"],
+		ATAC_SAMPLES_ID="{SAMPLES_ID}_atac"
+		
+	output:
+		config["DEST"]+"/{SAMPLES_ID}.lib.csv"
+	resources: cpus=1, mem_mb=4000, time_min=30
+	run:
+		import csv
+		rows = [ ['fastqs','sample','library_type'],
+			 [params.GEX_FASTQ,params.GEX_SAMPLES_ID,'Gene Expression'],
+			 [params.ATAC_FASTQ,params.ATAC_SAMPLES_ID,'Chromatin Accessibility'] ]
+		with open(output[0],'w') as f:
+			write = csv.writer(f)
+			write.writerows(rows)
+			
+rule counting:
+	input:
+		LIBRARY=config["DEST"]+"/{SAMPLES_ID}.lib.csv",
+		REF=config["REF"],
+		DEST=config["DEST"]
+	params:
+		ID="{SAMPLES_ID}"
+	output:
+		config["DEST"]+"/{SAMPLES_ID}/{SAMPLES_ID}_complete.txt"
+	resources: cpus=5, mem_mb=20000, time_min=1440
+	shell:
+		"""
+		cd {input.DEST}
+		source /opt/ohpc/pub/Software/anaconda3/etc/profile.d/conda.sh
+		conda activate gcc9_libstdc6
+		ml cellranger-arc/2.0.2
+		
+		cellranger-arc count --id={params.ID} \
+				     --reference={input.REF} \
+				     --libraries={input.LIBRARY} \
+				     --localcores=5 \
+				     --localmem=20
+		touch {output}
+		"""

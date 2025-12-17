@@ -1,0 +1,5 @@
+ATAC_INPUT: /data/Palmetto_sync/Projects/vshanka_cocaine_scrnadna/FASTQS/SH10X_ATAC_09_16/SH10X_ATAC_09_16/outs/fastq_path/HGWCTDRX2
+SOURCE: /data/Palmetto_sync/Projects/vshanka_cocaine_scrnadna/FASTQS/SH10X_RNA_09_16/SH10X_RNA_09_16/outs/fastq_path/H2TV3DRXY
+REF: /data/databases/d_mel/d_mel_6.22_ensembl/indexed/10X/cellranger-arc/Dmel6_22
+DEST: /data/Palmetto_sync/Projects/vshanka_cocaine_scrnadna/Counts/SH10X_multiome_09_16
+EXT: "_001.fastq.gz"
