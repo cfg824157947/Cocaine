@@ -209,6 +209,34 @@ done
 
 - [X] make networks (cytoscape)
 - [ ] generate networks figure
-- [ ] Downstream GO
-- [ ] Generate GO figure
+  - [ ] Use celltype specific network
+    - [ ] for kenyon cell generate networks
+    - [ ] switch GRN dir since cannot add new network to the dir
+** Generate network for figure [0/2]
+*** Generate network for cytoscape [0/1]
+ - Fix TF.
+ - input
+   - only focus on one network (TF-TG) (RE-TF)
+   - using top k edges
+   - filter node TFs(DTFA TFs), Gene (logFC higher than X) (maybe needed normalization) 
+ - [ ] output[0/2]
+   - [ ] for cytoscape format
+     - edge
+     - node annoation
+       - TF, TG -> shape
+       - DTFA and logFC score -> color
+       - TF node out degree -> size
+   - [ ] a simple network figure for preview
+
+*** Put genes in network to GO for story [0/5]
+ - [ ] See if network have module first (maybe clustering)
+ - [ ] for these node also do GO, and chose GO term can tell story
+   We know the gene for each term put them in same location.
+ - [ ] ask AI about which GO term in Kenyon cell can tell the story
+   about cocaine/drug addiction/perference.
+    
+   - [ ] shape TF, NonTF
+
+** SNP overlap with TG RE
+
 
