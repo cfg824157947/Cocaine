@@ -219,7 +219,7 @@ Scripts:
 
 ## Data files
 
-** Linear Mixed Effects ANOVA results Locations:** 
+**Linear Mixed Effects ANOVA results Locations:** 
 `unimodal/atac/analysis/peak_comparison_filtering/Supplementary_table_ATAC_lmm_ANOVA_aggregated.xlsx`
 `unimodal/gex/Supplementary_table_GEX_lmm_ANOVA_aggregated.xlsx`
 
