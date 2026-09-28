@@ -217,6 +217,17 @@ Scripts:
 
 ---
 
+## Data files
+
+** Linear Mixed Effects ANOVA results Locations:** 
+`unimodal/atac/analysis/peak_comparison_filtering/Supplementary_table_ATAC_lmm_ANOVA_aggregated.xlsx`
+`unimodal/gex/Supplementary_table_GEX_lmm_ANOVA_aggregated.xlsx`
+
+Description:
+- These two Excel worksheets contain the aggregated raw and FDR-adjusted p-values from the linear mixed effects ANOVA run using the R afex package for all 44 clusters.
+
+---
+
 ## Contact
 
 **Vijay Shankar**  
