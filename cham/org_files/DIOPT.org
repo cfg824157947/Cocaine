@@ -1,0 +1,104 @@
+* Load DIOPT DataFrame
+#+begin_src jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import os
+  import pandas as pd
+  from tabulate import tabulate
+
+  DIOPT_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/Downsteam_enrichment/DIOPT/"
+
+  file_list = sorted(os.listdir(DIOPT_dir))
+  print(file_list)
+
+  # Load the first file as an example
+  file_path = f'{DIOPT_dir}/{file_list[0]}'
+  diopt_df = pd.read_csv(file_path)
+  print(f"Loaded: {file_list[0]}")
+
+  for file_name in file_list:
+      if 'Human' in file_name and 'Kenyon' in file_name:
+          print(file_name)
+
+  print(tabulate(diopt_df.head(), headers='keys', tablefmt='org'))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+['diopt_GABAergic_Female_Human.csv', 'diopt_GABAergic_Female_Mouse.csv', 'diopt_GABAergic_Female_Rat.csv', 'diopt_Kenyon_Female_Human.csv', 'diopt_Kenyon_Female_Mouse.csv', 'diopt_Kenyon_Female_Rat.csv', 'diopt_Kenyon_Male_Human.csv', 'diopt_Kenyon_Male_Mouse.csv', 'diopt_Kenyon_Male_Rat.csv', 'diopt_Mi1_Female_Human.csv', 'diopt_Mi1_Female_Mouse.csv', 'diopt_Mi1_Female_Rat.csv', 'diopt_PAM_Male_Human.csv', 'diopt_PAM_Male_Mouse.csv', 'diopt_PAM_Male_Rat.csv', 'diopt_Perineurial_glia_Female_Human.csv', 'diopt_Perineurial_glia_Female_Mouse.csv', 'diopt_Perineurial_glia_Female_Rat.csv', 'diopt_T3_Female_Human.csv', 'diopt_T3_Female_Mouse.csv', 'diopt_T3_Female_Rat.csv', 'diopt_Tm1_Female_Human.csv', 'diopt_Tm1_Female_Mouse.csv', 'diopt_Tm1_Female_Rat.csv']
+Loaded: diopt_GABAergic_Female_Human.csv
+diopt_Kenyon_Female_Human.csv
+diopt_Kenyon_Male_Human.csv
+      Input Order  Search Term      Fly GeneID  FlyBaseID    Fly Symbol    Species 2      Human GeneID    Human Species Gene ID  Human Symbol    Ensmbl ID (link HPA)      DIOPT Score    Weighted Score  Rank      Best Score    Best Score Reverse    Prediction Derived From                                                                                                                    Alignment & Scores  Feedback    Gene Details
+--  -------------  -------------  ------------  -----------  ------------  -----------  --------------  -----------------------  --------------  ----------------------  -------------  ----------------  --------  ------------  --------------------  ---------------------------------------------------------------------------------------------------------------------------------------  --------------------  ----------  ----------------------------------------------------------------------------------------------------
+ 0              1  alpha-Man-Ia          31957  FBgn0259170  alpha-Man-Ia  Human                 10905                     6822  MAN1A2          ENSG00000198162                    13             12.81  high      Yes           Yes                   Compara, Domainoid, eggNOG, Inparanoid, OMA, OrthoDB, OrthoFinder, OrthoInspector, Hieranoid, Panther, Phylome, SonicParanoid, orthoMCL                   nan  Add         G2F details (MAN1A2)    DRscDB Data: (MAN1A2)                             Human Protein Atlas  (HPA)
+ 1              1  alpha-Man-Ia          31957  FBgn0259170  alpha-Man-Ia  Human                  4121                     6821  MAN1A1          ENSG00000111885                    13             12.81  high      Yes           Yes                   Compara, Domainoid, eggNOG, Inparanoid, OMA, OrthoDB, OrthoFinder, OrthoInspector, Hieranoid, Panther, Phylome, SonicParanoid, orthoMCL                   nan  Add         G2F details (MAN1A1)    DRscDB Data: (MAN1A1)                             Human Protein Atlas  (HPA)
+ 2              1  alpha-Man-Ia          31957  FBgn0259170  alpha-Man-Ia  Human                 57134                    19080  MAN1C1          ENSG00000117643                    11             10.81  moderate  No            Yes                   Compara, eggNOG, Inparanoid, OMA, OrthoDB, OrthoFinder, OrthoInspector, Panther, Phylome, orthoMCL, SonicParanoid                                         nan  Add         G2F details (MAN1C1)    DRscDB Data: (MAN1C1)                             Human Protein Atlas  (HPA)
+ 3              1  alpha-Man-Ia          31957  FBgn0259170  alpha-Man-Ia  Human                 55741                    15877  EDEM2           ENSG00000088298                     2              1.94  low       No            No                    Compara, OrthoDB                                                                                                                                          nan  Add         G2F details (EDEM2)    DRscDB Data: (EDEM2)                             Human Protein Atlas  (HPA)
+ 4              1  alpha-Man-Ia          31957  FBgn0259170  alpha-Man-Ia  Human                 80267                    16787  EDEM3           ENSG00000116406                     2              1.94  low       No            No                    Compara, OrthoDB                                                                                                                                          nan  Add         G2F details (EDEM3)    DRscDB Data: (EDEM3)                             Human Protein Atlas  (HPA)
+#+end_example
+
+* Do GO on Human DIOPT Score > 5
+#+begin_src jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import gseapy as gp
+  import numpy as np
+  import seaborn as sns
+  import matplotlib.pyplot as plt
+
+
+  for file_name in file_list:
+      if 'Human' in file_name and 'Kenyon' in file_name:
+          print(file_name)
+          file_path = f'{DIOPT_dir}/{file_name}'
+          diopt_df = pd.read_csv(file_path)
+      else:
+          continue
+      # Filter genes mapping to Human with DIOPT score > 3j
+      human_genes = diopt_df[(diopt_df['Species 2'] == 'Human') & (diopt_df['DIOPT Score'] > 5)]['Human Symbol'].unique().tolist()
+
+      print(f"Total unique human genes with DIOPT score > 5: {len(human_genes)}")
+
+      # Run Enrichment for GO Biological Process
+      enr = gp.enrichr(gene_list=human_genes,
+                      #gene_sets=['GO_Biological_Process_2025'],
+                      gene_sets=['KEGG_2026'],
+                      organism='human',
+                      outdir=None)
+
+      # Display top 10 results
+      print(tabulate(enr.results.head(10), headers='keys', tablefmt='org'))
+
+      # Pre-process results for plotting
+      df_plot = enr.results.copy()
+
+      # Calculate -log10(Adjusted P-value) for bubble size
+      df_plot['nlog10'] = -np.log10(df_plot['Adjusted P-value'].replace(0, 1e-300))
+
+      # Ensure numeric types
+      df_plot['Combined Score'] = pd.to_numeric(df_plot['Combined Score'], errors='coerce')
+      df_plot['Odds Ratio'] = pd.to_numeric(df_plot['Odds Ratio'], errors='coerce')
+
+      # Sort and take top 20 terms by Combined Score
+      df_plot = df_plot.sort_values('Adjusted P-value', ascending=True).head(20)
+
+      # Generate Bubble Plot using Seaborn
+      plt.figure(figsize=(10, 8))
+      sns.set_style("whitegrid")
+
+      # Use scatterplot for bubble plot
+      scatter = sns.barplot(data=df_plot, 
+                                hue='Odds Ratio', 
+                                y='Term', 
+                                x='nlog10', 
+                                palette='viridis',
+                                alpha=0.8)
+
+      plt.title(f"GO Biological Process Enrichment {file_name} (DIOPT > 5)", fontsize=15)
+      plt.xlabel("-log10(adj.pvalue)", fontsize=12)
+      plt.ylabel("GO Term", fontsize=12)
+
+      # Move legend outside
+      plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0. , title='Odds Ratio')
+      plt.tight_layout()
+      plt.show()
+#+end_src
+
+

@@ -1,0 +1,902 @@
+* DTFA analysis
+#+BEGIN_SRC jupyter-python
+import sys
+import pandas as pd
+import numpy as np   
+from statsmodels.stats.multitest import multipletests
+import os
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+import scipy.stats as stats
+from sklearn.decomposition import NMF
+import statsmodels.api
+from statsmodels.formula.api import ols
+
+def select_group_by_key(meta_data, key, value):
+    """
+    Subset the meta_data DataFrame by a key-value pair.
+
+    Parameters
+    ----------
+    meta_data : pd.DataFrame
+        Metadata containing
+    """
+    idx = meta_data[key] == value
+    selected_index = meta_data[idx].index
+    return selected_index
+
+def select_group_by_key(meta_data, key, value):
+    """
+    Subset the meta_data DataFrame by a key-value pair.
+
+    Parameters
+    ----------
+    meta_data : pd.DataFrame
+        Metadata containing
+    """
+    idx = meta_data[key] == value
+    selected_index = meta_data[idx].index
+    return selected_index
+
+
+def calculate_logFC(exp_df, meta_df):
+    """
+    Compute log fold change (difference) between group=1 and group=0
+    for a given celltype.
+
+    Parameters
+    ----------
+    exp_df : pd.DataFrame
+        Expression matrix (rows=genes, cols=cells).
+    meta_df : pd.DataFrame
+        Cell-level metadata with columns ['celltype', 'group'] at least.
+    celltype : str
+        The celltype of interest.
+
+    Returns
+    -------
+    FC : pd.DataFrame
+        A single-column DataFrame with the difference in mean expression
+        for each gene in the given celltype.
+    """
+    aud_barcode = meta_df[meta_df['group'] == 1].index
+    ctl_barcode = meta_df[meta_df['group'] == 0].index
+
+    mean1 = exp_df[aud_barcode].mean(axis=1)# + 1e-6
+    mean0 = exp_df[ctl_barcode].mean(axis=1)# + 1e-6
+    FC = pd.DataFrame(mean1 - mean0, columns=['logFC'])
+    return FC
+def calculate_logFC(exp_df, meta_df):
+    """
+    Compute log fold change (difference) between group=1 and group=0
+    for a given celltype.
+
+    Parameters
+    ----------
+    exp_df : pd.DataFrame
+        Expression matrix (rows=genes, cols=cells).
+    meta_df : pd.DataFrame
+        Cell-level metadata with columns ['celltype', 'group'] at least.
+    celltype : str
+        The celltype of interest.
+
+    Returns
+    -------
+    FC : pd.DataFrame
+        A single-column DataFrame with the difference in mean expression
+        for each gene in the given celltype.
+    """
+    aud_barcode = meta_df[meta_df['group'] == 1].index
+    ctl_barcode = meta_df[meta_df['group'] == 0].index
+
+    mean1 = exp_df[aud_barcode].mean(axis=1)# + 1e-6
+    mean0 = exp_df[ctl_barcode].mean(axis=1)# + 1e-6
+    FC = pd.DataFrame(mean1 - mean0, columns=['logFC'])
+    return FC
+
+
+def make_logFC_df(exp_df, meta_df, key_name):
+    """
+    Create a DataFrame of log fold changes (differences) for all genes
+    in each celltype.
+
+    Parameters
+    ----------
+    exp_df : pd.DataFrame
+        Expression matrix (rows=genes, cols=cells).
+    meta_df : pd.DataFrame
+        Cell-level metadata with columns ['celltype', 'group'] at least.
+    celltype_list : list
+        List of celltypes to compute logFC.
+
+    Returns
+    -------
+    FC_df : pd.DataFrame
+        Columns are celltypes, rows are genes. Each entry is the difference
+        in mean expression for group=1 vs group=0.
+    """
+    key_list = meta_df[key_name].unique()
+    FC_df = pd.DataFrame()
+    FC_dict = {}
+    for key in key_list:
+        idx = meta_df[meta_df[key_name] == key].index
+        FC = calculate_logFC(exp_df[idx], meta_df.loc[idx])
+        #FC_df[key] = FC['logFC']
+        FC_dict[key] = FC['logFC']
+        
+    FC_df = pd.DataFrame(FC_dict)
+        
+    return FC_df
+
+
+def new_corr_stats(corr_values, Prefer, N):
+    """
+    corr_values: pandas Series with MultiIndex (i,j) and correlation values
+    Prefer: pandas Series or dict mapping sample -> group (True/False or labels)
+    N: int, sample size used in the sd formula
+    Returns: dict with keys including z_w, z_b, z, p_val, log_p, minus_log10_p, and diagnostics
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import norm
+
+    result_dict = {}
+
+    # normalize Prefer to a dict for fast lookup
+    try:
+        pref_dict = Prefer.to_dict()
+    except Exception:
+        # if Prefer already a dict-like
+        pref_dict = dict(Prefer)
+
+    # Prepare corr_df
+    corr_df = pd.DataFrame({'corr': corr_values.values},
+                            index=corr_values.index).reset_index()
+    # corr_df columns: level_0, level_1, corr
+    corr_df.columns = ['level_0', 'level_1', 'corr']
+
+    # determine group membership (True/False) safely
+    def pref_get(k):
+        # fall back to None if key not found
+        return pref_dict.get(k, None)
+
+    corr_df['group'] = corr_df.apply(lambda r: pref_get(r['level_0']) == pref_get(r['level_1']), axis=1)
+
+    # compute means per group if available
+    if corr_df['group'].nunique() == 0:
+        # no grouping info
+        result_dict['corr_Within_group'] = np.nan
+        result_dict['corr_Between_group'] = np.nan
+        result_dict['corr_diff'] = np.nan
+    else:
+        corr_group_mean = corr_df.groupby(by='group')['corr'].mean()
+        # safe indexing: True might be index True/False, ensure both exist
+        within = corr_group_mean.get(True, np.nan)
+        between = corr_group_mean.get(False, np.nan)
+        result_dict['corr_Within_group'] = within
+        result_dict['corr_Between_group'] = between
+        result_dict['corr_diff'] = within - between
+
+    # Build within / between edge index lists (tuples)
+    edges = list(corr_values.index)
+    within_edges = [edge for edge in edges if pref_get(edge[0]) == pref_get(edge[1])]
+    between_edges = [edge for edge in edges if pref_get(edge[0]) != pref_get(edge[1])]
+
+    # Convert to arrays of correlation values
+    # handle case where no edges in a category
+    def get_corr_array(edge_list):
+        if len(edge_list) == 0:
+            return np.array([], dtype=float)
+        else:
+            # fetch values from corr_values (MultiIndex)
+            return np.array([corr_values[edge] for edge in edge_list], dtype=float)
+
+    corr_within = get_corr_array(within_edges)
+    corr_between = get_corr_array(between_edges)
+
+    # Fisher z (arctanh) requires values strictly in (-1,1). clip with small epsilon.
+    eps_clip = 1e-15
+    corr_within_clipped = np.clip(corr_within, -1 + eps_clip, 1 - eps_clip)
+    corr_between_clipped = np.clip(corr_between, -1 + eps_clip, 1 - eps_clip)
+
+    # compute z values elementwise (arctanh)
+    # handle empty arrays safely
+    z_within_arr = np.arctanh(corr_within_clipped) if corr_within_clipped.size > 0 else np.array([])
+    z_between_arr = np.arctanh(corr_between_clipped) if corr_between_clipped.size > 0 else np.array([])
+
+    # means
+    z_w = np.nan
+    z_b = np.nan
+    if z_within_arr.size > 0:
+        z_w = float(np.nanmean(z_within_arr))
+    if z_between_arr.size > 0:
+        z_b = float(np.nanmean(z_between_arr))
+
+    result_dict['z_w'] = z_w
+    result_dict['z_b'] = z_b
+    result_dict['mu'] = np.nan if (np.isnan(z_w) or np.isnan(z_b)) else (z_w - z_b)
+
+    # compute sd safely
+    # original formula: sd = sqrt((1/(N-3)) * (1/n_within + 1/n_between))
+    n_within = len(corr_within)
+    n_between = len(corr_between)
+    sd = np.nan
+    if (N - 3) > 0 and n_within > 0 and n_between > 0:
+        sd = np.sqrt((1.0 / (N - 3.0)) * ((1.0 / n_within) + (1.0 / n_between)))
+    result_dict['sd'] = sd
+
+    # z-statistic
+    z_stat = np.nan
+    if (not np.isnan(result_dict['mu'])) and (sd is not np.nan) and (sd != 0):
+        z_stat = result_dict['mu'] / sd
+    result_dict['z'] = z_stat
+
+    # compute p-value in log-space to avoid underflow; use upper-tail (one-sided) like original (1 - cdf)
+    if z_stat is None or (isinstance(z_stat, float) and (np.isnan(z_stat))):
+        result_dict['log_p'] = np.nan
+        result_dict['p_val'] = np.nan
+        result_dict['minus_log10_p'] = np.nan
+    else:
+        # log survival function (logsf) is stable for large z
+        log_p = norm.logsf(z_stat)  # log(1 - cdf(z))
+        try:
+            p_val = float(np.exp(log_p))
+        except OverflowError:
+            p_val = 0.0
+
+        result_dict['log_p'] = float(log_p)
+        result_dict['p_val'] = p_val
+        # minus log10 p (useful for plotting)
+        ln10 = np.log(10.0)
+        result_dict['minus_log10_p'] = float(-log_p / ln10)
+
+    # diagnostics
+    result_dict['n_within'] = n_within
+    result_dict['n_between'] = n_between
+    result_dict['n_total_edges'] = len(edges)
+
+    return result_dict
+
+
+
+def diff_celltype_TFA(reg, metadata,TG_pseudobulk):
+    celltype_logFC_stat = pd.DataFrame()
+    corr_stats_dict = {}
+    Male_corr_stats_dict = {}
+    Female_corr_stats_dict = {}
+    corr_male_dict = {}
+    corr_male_dict['network'] = {}
+    corr_male_dict['logFC'] = {}
+    corr_female_dict = {}
+    corr_female_dict['network'] = {}
+    corr_female_dict['logFC'] = {}
+    
+    DTFA_score_dict_male = {}
+    DTFA_score_dict_female = {}
+    Q_perm_dict_male = {}
+    Q_perm_dict_female = {}
+    celltype_list = metadata['celltype'].unique()
+    for celltype in celltype_list:
+        idx = select_group_by_key(metadata, 'celltype', celltype)
+        df = make_logFC_df(TG_pseudobulk[idx], metadata.loc[idx], 'for_group')
+        df = df[(df.isna().sum(axis=1) == 0)]
+        Gene_score = df.loc[:,(df.isna().sum() == 0)]
+        Gene_score_overlap = Gene_score.reindex(reg.index).dropna(how='all', axis=1)
+
+        Gene_score_male = Gene_score_overlap.filter(like="Male", axis=1)
+        Gene_score_male = (Gene_score_male.T @ reg).T
+
+        Gene_score_female = Gene_score_overlap.filter(like="Female", axis=1)
+        Gene_score_female = (Gene_score_female.T @ reg).T
+        
+        line_mean = Gene_score_male.mean()
+        line_std = Gene_score_male.std()
+        Gene_score_male = (Gene_score_male - line_mean)/line_std
+        DTFA_score_dict_male[celltype] = Gene_score_male
+        
+        line_mean = Gene_score_female.mean()
+        line_std = Gene_score_female.std()
+        Gene_score_female = (Gene_score_female - line_mean)/line_std
+        DTFA_score_dict_female[celltype] = Gene_score_female
+        
+        corr_male = Gene_score_male.corr()
+        corr_female = Gene_score_female.corr()
+        corr_male_dict['network'][celltype] = corr_male
+        corr_female_dict['network'][celltype] = corr_female
+
+        corr_values_male = corr_male.where(np.triu(np.ones(corr_male.shape), k=1).astype(bool)).stack()
+        corr_values_female = corr_female.where(np.triu(np.ones(corr_female.shape), k=1).astype(bool)).stack()
+        if len(corr_values_male) > 10:
+            Male_corr_stats_dict[celltype] = new_corr_stats(corr_values_male, prefer_df[0], Gene_score_male.shape[0])
+            
+        if len(corr_values_female) > 10:
+            Female_corr_stats_dict[celltype] = new_corr_stats(corr_values_female, prefer_df[0], Gene_score_female.shape[0])
+            
+    Female_network_df = pd.DataFrame(Female_corr_stats_dict).T
+    Male_network_df = pd.DataFrame(Male_corr_stats_dict).T
+
+    Female_network_df['type'] = 'DTFA'
+    Male_network_df['type'] = 'DTFA'
+    
+    corr_stats_dict = {}
+    Male_corr_stats_dict = {}
+    Female_corr_stats_dict = {}
+    #corr_male_dict = {}
+    #corr_female_dict = {}
+
+
+    Male_corr_stats_dict = {}
+    Female_corr_stats_dict = {}
+    for celltype in celltype_list:
+    #for celltype in ["alpha/beta/gamma Kenyon cell"]:
+
+        idx = select_group_by_key(metadata, 'celltype', celltype)
+        df = make_logFC_df(TG_pseudobulk[idx], metadata.loc[idx], 'for_group')
+        Gene_score = df.loc[:,(df.isna().sum() == 0)]
+        Gene_score_overlap = Gene_score.loc[reg.index].dropna(how='all', axis=1)
+
+        Gene_score_male = Gene_score_overlap.filter(like="Male", axis=1)
+        Gene_score_female = Gene_score_overlap.filter(like="Female", axis=1)
+        #corr_male = (Gene_score_male).T @ (Gene_score_male)
+        corr_male = Gene_score_male.corr()
+
+        corr_female = Gene_score_female.corr()
+        
+        corr_male_dict['logFC'][celltype] = corr_male
+        corr_female_dict['logFC'][celltype] = corr_female
+
+        
+        corr_values_male = corr_male.where(np.triu(np.ones(corr_male.shape), k=1).astype(bool)).stack()
+        corr_values_female = corr_female.where(np.triu(np.ones(corr_female.shape), k=1).astype(bool)).stack() 
+        if len(corr_values_male) > 10:
+            Male_corr_stats_dict[celltype] = new_corr_stats(corr_values_male, prefer_df[0], Gene_score_male.shape[0])
+
+        if len(corr_values_female) > 10:
+            Female_corr_stats_dict[celltype] = new_corr_stats(corr_values_female, prefer_df[0], Gene_score_female.shape[0])
+
+    Female_logFC_df = pd.DataFrame(Female_corr_stats_dict).T
+    Male_logFC_df = pd.DataFrame(Male_corr_stats_dict).T
+    Female_logFC_df['type'] = 'logFC' 
+    Male_logFC_df['type'] = 'logFC'
+    
+    Male_merged = pd.concat([Male_network_df,Male_logFC_df])
+    Female_merged = pd.concat([Female_network_df,Female_logFC_df])
+    
+    return Female_merged, Male_merged, corr_male_dict, corr_female_dict, DTFA_score_dict_male, DTFA_score_dict_female
+#+END_SRC
+
+
+
+#+BEGIN_SRC jupyter-python
+Datadir='/project/zduren/durenlab/cham/cocain/LINGER/'
+outdir=Datadir + "output/"#output dir
+driver_result_dir = Datadir + "LINE_result_cham/driver_results_V2/"
+metadata = pd.read_csv((Datadir + "meta_data2.csv"), index_col=0)
+TG_pseudobulk = pd.read_csv((Datadir + "data/TG_pseudobulk.tsv"), index_col=0)
+K=25
+adjust_method='bonferroni'
+corr_method='pearsonr'
+
+
+GRN='trans_regulatory'
+reg=pd.read_csv(outdir+'cell_population_'+GRN+'.txt',sep='\t',index_col=0)
+celltype_list = metadata['celltype'].unique()
+metadata['sex'] = metadata['male'].astype(str)
+metadata.loc[(metadata.sex == '1'),'sex'] = 'Male'
+metadata.loc[(metadata.sex == '0'),'sex'] = 'Female'
+metadata['for_group'] = metadata['sex'].astype(str) + '_' + metadata['Line']
+for_group_list = metadata['for_group'].unique()
+Number_of_Significant_TF_df = pd.DataFrame(index = celltype_list)
+sns.set(font_scale=1.3)
+melt_df_dict = {}
+
+metadata['prefer_Line'] = metadata['prefer']+ '-' + metadata['sex'] + '_' + metadata['Line']
+prefer_df = pd.DataFrame(metadata['prefer_Line'].unique())
+prefer_df.index = prefer_df[0].str.split('-').str[1]
+prefer_df[0] = prefer_df[0].str.split('-').str[0]
+prefer_df
+prefer_df['Preference'] = ['r' if r == 'High' else 'b' for r in prefer_df[0]]
+
+#+END_SRC
+
+
+
+
+#+BEGIN_SRC jupyter-python
+reg=pd.read_csv(outdir+'cell_population_'+GRN+'.txt',sep='\t',index_col=0)
+trans_reg = reg.copy()
+TFset=trans_reg.columns
+TGset=trans_reg.index
+celltype_list = metadata['celltype'].unique()
+R1 = stats.zscore(trans_reg,1);R1[np.isnan(R1)] = 0.0
+R2 = stats.zscore(trans_reg,0);R2[np.isnan(R2)] = 0.0
+Exp=pd.DataFrame(TG_pseudobulk,index=TG_pseudobulk.index,columns=TG_pseudobulk.columns)
+Z=R1+R2
+Z[Z<0]=0  
+Z= pd.DataFrame(Z,index=TGset,columns=TFset)
+#+END_SRC
+
+
+
+
+#+BEGIN_SRC jupyter-python
+TG_pseudobulk0 = pd.read_csv((Datadir + "data/TG_pseudobulk.tsv"), index_col=0)
+metadata1 = pd.read_csv("/project/zduren/durenlab/palmetto/cham/cocain/Final/PseudoBulk/LINGER/0_meta_pseudo_new_annotation.csv",index_col=0)
+metadata1["celltype"] = metadata1["cluster"].map(leiden_to_celltype)
+#+END_SRC
+
+
+
+#+BEGIN_SRC jupyter-python
+Female_merged1, Male_merged1, corr_male_dict1,corr_female_dict1, DTFA_male1, DTFA_female1 = diff_celltype_TFA(reg, metadata1.loc[TG_pseudobulk0.columns],TG_pseudobulk0)
+#+END_SRC
+
+
+#+BEGIN_SRC jupyter-python
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+# Set up figure
+fig, axes = plt.subplots(1, 2, figsize=(18, 11), sharex=True, sharey=True)
+
+plt.subplots_adjust(wspace=0.25)
+
+
+import statsmodels.stats.multitest as smm
+pvals = Female_merged1['p_val'].values  
+_, bonf_pvals, _, _ = smm.multipletests(pvals, alpha=0.05, method='bonferroni')
+Female_merged1['bonf_pval'] = bonf_pvals
+
+_, bh_pvals, _, _ = smm.multipletests(pvals, alpha=0.05, method='fdr_bh')
+
+# store back into dataframe
+Female_merged1['BH_adj_pval'] = bh_pvals
+
+# ---------- Female plot ----------
+female_df = Female_merged1.copy()
+female_df['significance'] = "Not significant"
+idx = (female_df['bonf_pval'] < 0.05) & (
+    (female_df['corr_Within_group'] - female_df['corr_Between_group']) > 0.8
+)
+female_df.loc[idx,'significance'] = 'Significant'
+
+sns.scatterplot(
+    data=female_df,
+    x='corr_Between_group', y='corr_Within_group',
+    hue='type', hue_order=['logFC', 'DTFA'],
+    size=female_df['significance'].astype(str), size_order=['Significant', 'Not significant'],
+    ax=axes[0]
+)
+
+axes[0].get_legend().remove()
+
+texts = []
+for i, row in female_df.iterrows():
+    if row['significance'] == 'Significant':
+        texts.append(
+            axes[0].text(
+                row['corr_Between_group'] + 0.05,
+                row['corr_Within_group'],
+                i,
+                fontsize=15,
+                va='center'
+            )
+        )
+#adjust_text(texts, ax=axes[0], arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+
+# Remove legend for Female
+
+# ---------- Male plot ----------
+
+pvals = Male_merged1['p_val'].values  
+_, bonf_pvals, _, _ = smm.multipletests(pvals, alpha=0.05, method='bonferroni')
+Male_merged1['bonf_pval'] = bonf_pvals
+
+_, bh_pvals, _, _ = smm.multipletests(pvals, alpha=0.05, method='fdr_bh')
+#Male_High_Mid_p_val
+# store back into dataframe
+Male_merged1['BH_adj_pval'] = bh_pvals
+male_df = Male_merged1.copy()
+
+male_df['significance'] = "Not significant"
+idx = (male_df['bonf_pval'] < 0.05) & (
+    (male_df['corr_Within_group'] - male_df['corr_Between_group']) > 0.8
+)
+male_df.loc[idx,'significance'] = 'Significant'
+
+
+#male_df['significance'] = (male_df['corr_Within_group'] - male_df['corr_Between_group']) > 0.4
+
+sns.scatterplot(
+    data=male_df,
+    x='corr_Between_group', y='corr_Within_group',
+    hue='type', hue_order=['logFC', 'DTFA'],
+    size=male_df['significance'].astype(str), size_order=['Significant', 'Not significant'],
+    ax=axes[1]
+)
+
+texts = []
+for i, row in male_df.iterrows():
+    if row['significance'] == 'Significant':
+        texts.append(
+            axes[1].text(
+                row['corr_Between_group'] + 0.05,
+                row['corr_Within_group'],
+                i,
+                fontsize=15,
+                va='center'
+            )
+        )
+
+# ---------- Final adjustments ----------
+
+axes[0].set_xlabel("Between-group correlation", fontsize=20)
+axes[0].set_ylabel("Within-group correlation", fontsize=20)
+axes[1].set_xlabel("Between-group correlation", fontsize=20)
+#axes[1].set_ylabel("corr_Within_group", fontsize=20)
+axes[0].set_title('Female', fontsize=20,)
+axes[1].set_title('Male', fontsize=20, )
+
+sns.set_context("talk", font_scale=1.2)
+
+# make tick labels bigger
+for ax in axes:
+    ax.tick_params(axis='both', labelsize=18)
+
+plt.suptitle('Average within- and between- groups correlation in each cell type', fontsize=24)
+plt.tight_layout()
+plt.subplots_adjust(top=0.9)  # leave space for suptitle
+#fig.legend.set_bbox_to_anchor((1.3, 0.25))
+
+#plt.savefig("../Final/git_handle/Cocaine/Paper_doc/Figure/correlation_plots.svg", format="svg", dpi=300, bbox_inches="tight")
+
+plt.show()
+
+#+END_SRC
+
+
+
+
+
+* Individual TF test
+#+BEGIN_SRC jupyter-python
+import pandas as pd
+from scipy.stats import ttest_ind
+import numpy as np
+import io
+
+celltype_result_dict ={}
+DTFA_dict = {}
+
+Male_celltypes = male_df.loc[male_df['significance']=='Significant'].index.tolist()
+Female_celltypes = female_df.loc[female_df['significance']=='Significant'].index.tolist()
+celltype_list = Male_celltypes + Female_celltypes
+#celltype_list = female_df.index.unique()
+
+for celltype in celltype_list:
+    np.random.seed(42)
+    male_data = DTFA_male[celltype]
+    female_data = DTFA_female[celltype]
+
+
+    idx = prefer_df[0]=='High'
+    idx = prefer_df.loc[idx].index
+
+    Male_High_df = DTFA_male[celltype][idx.intersection(DTFA_male[celltype].columns)]
+    Female_High_df = DTFA_female[celltype][idx.intersection(DTFA_female[celltype].columns)]
+    
+    
+    idx = prefer_df[0]=='Mid'
+    idx = prefer_df.loc[idx].index
+    
+    Male_Mid_df = DTFA_male[celltype][idx.intersection(DTFA_male[celltype].columns)]
+    Female_Mid_df = DTFA_female[celltype][idx.intersection(DTFA_female[celltype].columns)]
+
+
+
+    avg_Mid = pd.DataFrame(Male_Mid_df.values + Female_Mid_df.values, index=Male_Mid_df.index)
+    avg_High = pd.DataFrame(Male_High_df.values + Female_High_df[['Female_RP0609', 'Female_RP0446','Female_RP0457']].values, index=Male_High_df.index)
+
+    # Perform two-sample t-test for each gene
+    results = []
+    for gene in male_data.index:
+        Male_High_Mid_t_stat, Male_High_Mid_p_val = ttest_ind(Male_High_df.loc[gene], Male_Mid_df.loc[gene], equal_var=False)
+        Female_High_Mid_t_stat, Female_High_Mid_p_val = ttest_ind(Female_High_df.loc[gene], Female_Mid_df.loc[gene], equal_var=False)
+        results.append({
+            "TF": gene,
+
+            "Male_High_Mid_t_stat": Male_High_Mid_t_stat,
+            "Female_High_Mid_t_stat": Female_High_Mid_t_stat,
+
+            "Male_High_Mid_p_val": Male_High_Mid_p_val,
+            "Female_High_Mid_p_val": Female_High_Mid_p_val,
+
+            "Male_High_Mid_-log10_p_val": -np.log10(Male_High_Mid_p_val),
+            "Female_High_Mid_-log10_p_val": -np.log10(Female_High_Mid_p_val),
+        })
+
+    # Convert results to DataFrame
+    results_df = pd.DataFrame(results)
+    celltype_result_dict[celltype] = results_df
+
+#+END_SRC
+
+
+#+BEGIN_SRC jupyter-python
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy as np
+
+
+
+plt.figure(figsize=(64, 20))
+
+# Define thresholds
+xline = -np.log10(0.1)
+yline = -np.log10(0.1)
+
+
+# Define hue categories and color palette
+hue_order = ['Male_Female', 'Only_Male', 'Only_Female', 'Not_significant']
+palette = {
+    'Male_Female': 'red',
+    'Only_Male': 'blue',
+    'Only_Female': 'blue',
+    'Not_significant': 'blue'
+}
+
+# Clean up labels (standardize to string labels)
+for df in celltype_result_dict.values():
+    df['avg_High_Mid_significant'] = df['avg_High_Mid_significant'].map({
+        'Male_Female': 'Male_Female',
+        'Only_Male': 'Only_Male',
+        'Only_Female': 'Only_Female',
+        'Not_significant': 'Not_significant',
+        True: 'Male_Female',   # or map to what makes sense in your data
+        False: 'Not_significant'
+    }).fillna('Not_significant')  # fallback for NaNs
+
+# Create subplot grid
+n = len(set(celltype_result_dict.keys()))
+
+ncols = 4
+nrows = int(np.ceil(n / ncols))
+fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows), squeeze=False)
+
+# Plot per cell type
+#for idx, celltype in enumerate(set(celltype_list)):
+for idx, celltype in enumerate(set(celltype_result_dict.keys())):
+    row, col = divmod(idx, ncols)
+    ax = axes[row][col]
+
+
+    _, celltype_result_dict[celltype]['adj_Male_High_Mid_p_val'], _, _ = smm.multipletests(celltype_result_dict[celltype]['Male_High_Mid_p_val'], alpha=0.05, method='bonferroni')
+    _, celltype_result_dict[celltype]['adj_Female_High_Mid_p_val'], _, _ = smm.multipletests(celltype_result_dict[celltype]['Female_High_Mid_p_val'], alpha=0.05, method='bonferroni')
+    
+    celltype_result_dict[celltype]['adj_Male_High_Mid_-log10_p_val'] = -np.log10(celltype_result_dict[celltype]['adj_Male_High_Mid_p_val'])
+    celltype_result_dict[celltype]['adj_Female_High_Mid_-log10_p_val'] = -np.log10(celltype_result_dict[celltype]['adj_Female_High_Mid_p_val'])
+
+    
+    sns.scatterplot(
+        data=celltype_result_dict[celltype],
+        x='adj_Female_High_Mid_-log10_p_val',
+        y='adj_Male_High_Mid_-log10_p_val',
+        hue='adj_avg_High_Mid_significant',
+#        hue_order=hue_order,
+#        palette=palette,
+        ax=ax,
+        legend=False
+    )
+    ax.axhline(y=yline, linestyle='--', color='gray')
+    ax.axvline(x=xline, linestyle='--', color='gray')
+    ax.set_title(celltype)
+    ax.set_xlabel('-log10 adj p-val (Female)')
+    ax.set_ylabel('-log10 adj p-val (Male)')
+    ax.set_title(celltype, fontsize=14)          # smaller title
+    ax.tick_params(axis='both', labelsize=16)    # larger x/y tick labels
+    ax.xaxis.label.set_size(16)                  # larger x-axis title
+    ax.yaxis.label.set_size(16)                  # larger y-axis title
+
+    # Remove unused subplots
+for j in range(idx + 1, nrows * ncols):
+    fig.delaxes(axes.flatten()[j])
+
+
+
+
+colors = sns.color_palette()  # default palette
+
+handles = [
+    plt.Line2D([0], [0], marker="o", color="w", label="Significant (avg sex)",
+               markerfacecolor=colors[1], markersize=8),
+    plt.Line2D([0], [0], marker="o", color="w", label="Not significant",
+               markerfacecolor=colors[0], markersize=8)
+]
+
+
+fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(1, 0.25))
+
+plt.tight_layout()
+
+#plt.savefig("Male_Female_scatter.svg", format="svg", dpi=300, bbox_inches="tight")
+
+plt.show()
+
+
+#+END_SRC
+
+
+
+
+* Plot for DTFA heatmap
+
+
+#+BEGIN_SRC jupyter-python
+
+# change cell type
+import numpy as np
+idx = celltype_result_dict['Kenyon cells'][celltype_result_dict['Kenyon cells']['adj_Male_High_Mid_p_val'] < 0.1].TF.values
+g = sns.clustermap(
+    #DTFA_dict['ac'].filter(like='Male').loc[idx],
+    DTFA_male['Kenyon cells'].loc[idx],
+    col_colors=prefer_df['Preference'],
+    cmap='viridis',
+    figsize=(10, 12),dendrogram_ratio=0.2
+)
+print(idx.shape)
+# Get all row labels (after clustering)
+yticklabels = g.data2d.index
+
+g.fig.suptitle("DTFA of Male Kenyon cells", fontsize=20, y=1.02)
+
+cbar = g.cax
+cbar.set_position([.9, .85, .05, .1])  # [left, bottom, width, height]
+
+# Set all y-tick labels manually
+g.ax_heatmap.set_yticks(np.arange(len(yticklabels))+0.5)
+g.ax_heatmap.set_yticklabels(yticklabels, fontsize=20)
+
+# force italic using real italic font file
+italic_font = fm.FontProperties(fname="/project/zduren/durenlab/palmetto/cham/util_data/Ariali.TTF", size=17)
+
+for label in g.ax_heatmap.get_yticklabels():
+    label.set_fontproperties(italic_font)
+    label.set_rotation(0)
+
+
+# Rotate if needed
+for label in g.ax_heatmap.get_yticklabels():
+    label.set_rotation(0)
+
+# Save
+plt.savefig('/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Figure/Male_DTFA_sig/FigureS_Male_Kenyon_DTFA_compare_SigTF.svg',
+            dpi=300, bbox_inches='tight')
+g.data2d.to_csv('/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/Male_DTFA_sig/M_Kenyon_cell.csv')
+plt.show()
+
+#+END_SRC
+
+
+
+
+
+* Top edges
+
+
+#+BEGIN_SRC jupyter-python
+trans_reg = reg.copy()
+TFset=trans_reg.columns
+TGset=trans_reg.index
+R1 = stats.zscore(trans_reg,1);R1[np.isnan(R1)] = 0.0
+R2 = stats.zscore(trans_reg,0);R2[np.isnan(R2)] = 0.0
+Z=R1+R2
+Z[Z<0]=0  
+Norm_reg = pd.DataFrame(Z,index=TGset,columns=TFset)
+import pandas as pd
+
+# suppose Norm_RE_TG is a DataFrame already
+melted = Norm_reg.reset_index().melt(
+    id_vars="index",           # keep gene names
+    var_name="TF",             # column name for regulatory element
+    value_name="score"         # column name for values
+).rename(columns={"index": "TG"})
+
+print(melted.head())
+idx = (melted.score != 0)
+melted.loc[idx].sort_values('score',ascending=False).to_csv("melted_TG_TF.csv",index = None)
+#+END_SRC
+
+
+
+#+BEGIN_SRC jupyter-python
+import pandas as pd
+from scipy import sparse
+RE_TG=pd.read_csv('/project/zduren/durenlab/cham/cocain/LINGER/output/cell_population_cis_regulatory.txt',sep='\t',header=None)
+
+df = RE_TG.copy()                 # your 3-col DataFrame
+df.columns = ['region','gene','val']   # rename if 0/1/2
+
+# if duplicate (region,gene) pairs exist, choose one value (min/mean/etc.)
+df = df.groupby(['region','gene'], as_index=False)['val'].min()
+
+# build sparse matrix: rows=regions, cols=genes, data=val
+r, row_idx = pd.factorize(df['region'])
+c, col_idx = pd.factorize(df['gene'])
+X = sparse.csr_matrix((df['val'].to_numpy(), (r, c)),
+                      shape=(len(row_idx), len(col_idx)))
+
+# optional: get a pandas sparse DataFrame view
+X_df = pd.DataFrame.sparse.from_spmatrix(X, index=row_idx, columns=col_idx)
+
+trans_reg = X_df.copy()
+TFset=trans_reg.columns
+TGset=trans_reg.index
+R1 = stats.zscore(trans_reg,1);R1[np.isnan(R1)] = 0.0
+R2 = stats.zscore(trans_reg,0);R2[np.isnan(R2)] = 0.0
+Z=R1+R2
+Z[Z<0]=0  
+X_df= pd.DataFrame(Z,index=TGset,columns=TFset)
+Norm_RE_TG = X_df.T
+
+# suppose Norm_RE_TG is a DataFrame already
+melted = Norm_RE_TG.reset_index().melt(
+    id_vars="index",           # keep gene names
+    var_name="RE",             # column name for regulatory element
+    value_name="score"         # column name for values
+).rename(columns={"index": "Gene"})
+
+print(melted.head())
+idx = (melted.score != 0)
+melted.loc[idx].sort_values('score',ascending=False).to_csv("melted_TG_RE.csv",index = None)
+#+END_SRC
+
+
+
+#+BEGIN_SRC jupyter-python
+import pandas as pd
+from scipy import sparse
+TF_RE=pd.read_csv('/project/zduren/durenlab/cham/cocain/LINGER/output/cell_population_TF_RE_binding.txt',sep='\t',index_col=0)
+
+df = TF_RE.copy()                 # your 3-col DataFrame
+df.columns = ['region','gene','val']   # rename if 0/1/2
+
+# if duplicate (region,gene) pairs exist, choose one value (min/mean/etc.)
+df = df.groupby(['region','gene'], as_index=False)['val'].min()
+
+# build sparse matrix: rows=regions, cols=genes, data=val
+r, row_idx = pd.factorize(df['region'])
+c, col_idx = pd.factorize(df['gene'])
+X = sparse.csr_matrix((df['val'].to_numpy(), (r, c)),
+                      shape=(len(row_idx), len(col_idx)))
+
+# optional: get a pandas sparse DataFrame view
+X_df = pd.DataFrame.sparse.from_spmatrix(X, index=row_idx, columns=col_idx)
+
+trans_reg = X_df.copy()
+TFset=trans_reg.columns
+TGset=trans_reg.index
+R1 = stats.zscore(trans_reg,1);R1[np.isnan(R1)] = 0.0
+R2 = stats.zscore(trans_reg,0);R2[np.isnan(R2)] = 0.0
+Z=R1+R2
+Z[Z<0]=0  
+X_df= pd.DataFrame(Z,index=TGset,columns=TFset)
+Norm_TF_RE = X_df.T
+
+import pandas as pd
+
+# suppose Norm_RE_TG is a DataFrame already
+melted = Norm_TF_RE.reset_index().melt(
+    id_vars="index",           # keep gene names
+    var_name="TF",             # column name for regulatory element
+    value_name="score"         # column name for values
+).rename(columns={"index": "RE"})
+
+print(melted.head())
+
+idx = (melted.score != 0)
+melted.loc[idx].sort_values('score',ascending=False).to_csv("melted_TF_RE.csv",index = None)
+#+END_SRC
+

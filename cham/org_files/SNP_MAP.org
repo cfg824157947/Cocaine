@@ -1,0 +1,212 @@
+* Load network
+#+BEGIN_SRC jupyter-python
+  import pandas as pd
+  from tabulate import tabulate
+  file_name = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/TG_TF_RE_table_Final/Kenyon_cells_Male_TG_TF_RE_table.csv"
+  file_name = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/TG_TF_RE_table_Final/Kenyon_cells_Female_TG_TF_RE_table.csv"
+  df = pd.read_csv(file_name)
+  df = df[['Gene', 'TF', 'w', 'n_regions', 'regions']]
+  df.set_index('Gene', inplace=True)
+  print(tabulate(df.head(), headers='keys', tablefmt='psql'))
+
+
+#+END_SRC
+
+#+RESULTS:
+: +--------+-------+----------+-------------+----------------------------------------------------------------+
+: | Gene   | TF    |        w |   n_regions | regions                                                        |
+: |--------+-------+----------+-------------+----------------------------------------------------------------|
+: | Dscam2 | GATAd |  8.2228  |           2 | 3L:7216927-7217547;3L:7030605-7031522                          |
+: | Muc68E | ct    |  8.83783 |           1 | 3L:12161844-12162684                                           |
+: | bru3   | brk   | 21.8755  |           2 | 3L:13387186-13388000;3L:13338794-13339658                      |
+: | bru3   | Pdp1  |  6.85976 |           3 | 3L:13441660-13442295;3L:13573922-13574804;3L:13404514-13405267 |
+: | CG8336 | Mad   |  7.31668 |           1 | 3L:9689391-9690176                                             |
+: +--------+-------+----------+-------------+----------------------------------------------------------------+
+
+
+#+BEGIN_SRC jupyter-python
+  import pandas as pd
+
+  table_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/TG_TF_RE_table_Final/"
+  bed_result_dir = "/project/zduren/durenlab/palmetto/cham/cocain/LINGER/RE_bed/"
+  cytoNet_result_dir = "/project/zduren/durenlab/palmetto/cham/cocain/LINGER/RE_networks/"
+
+
+  # Input file
+  #file_name = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/TG_TF_RE_table_Final/Kenyon_cells_Female_TG_TF_RE_table.csv"
+  file_list = os.listdir(table_dir)
+  #file_list = ['Kenyon_cells_Female_TG_TF_RE_table.csv']
+  for file_name in file_list :
+      base_name = file_name.replace('_TG_TF_RE_table.csv', '')
+      print(file_name)
+      print(base_name)
+
+      file_path = f"/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Table/TG_TF_RE_table_Final/{file_name}"
+      # Load data
+      df = pd.read_csv(file_path)
+      
+      # Keep needed columns
+      df = df[['Gene', 'TF', 'w', 'n_regions', 'regions']].copy()
+
+      # Split regions into separate rows
+      df['RE'] = df['regions'].str.split(';')
+      df = df.explode('RE').reset_index(drop=True)
+      
+      # Clean whitespace
+      df['Gene'] = df['Gene'].astype(str).str.strip()
+      df['TF'] = df['TF'].astype(str).str.strip()
+      df['RE'] = df['RE'].astype(str).str.strip()
+      
+      # Remove empty rows
+      df = df[(df['Gene'] != '') & (df['TF'] != '') & (df['RE'] != '')]
+      
+      # -------------------------
+      # TF -> RE edges
+      # -------------------------
+      tf_re = pd.DataFrame({
+          'source': df['TF'],
+          'target': df['RE'],
+          'interaction': 'TF-RE',
+          'weight': df['w'],
+          #    'TG': df['Gene']
+      }).drop_duplicates()
+      
+      # -------------------------
+      # RE -> TG edges
+      # -------------------------
+      re_tg = pd.DataFrame({
+          'source': df['RE'],
+          'target': df['Gene'],
+          'interaction': 'RE-TG',
+          'weight': df['w'],
+          #    'TF': df['TF']
+      }).drop_duplicates()
+      
+      # -------------------------
+      # Combine into one Cytoscape edge table
+      # -------------------------
+      edge_table = pd.concat([tf_re, re_tg], ignore_index=True)
+      
+      # Optional: create a unique edge name column for Cytoscape
+      #edge_table['name'] = edge_table['source'] + " (" + edge_table['interaction'] + ") " + edge_table['target']
+      
+      
+      
+      # BED format is 0-based start, half-open end
+      # If your input coordinates are 1-based inclusive, subtract 1 from start
+      # Keep only unique REs
+      re_list = df[['RE']].drop_duplicates().copy()
+      
+      # Parse chr:start-end
+      def parse_re(re_str):
+          chrom, coords = re_str.split(':')
+          start, end = coords.split('-')
+          start = int(start)
+          end = int(end)
+          return chrom, start, end
+
+
+      re_list[['chrom', 'start', 'end']] = re_list['RE'].apply(
+          lambda x: pd.Series(parse_re(x))
+      )
+      
+      # Optional name column for BED
+      re_list['name'] = re_list['RE']
+      
+      # Final BED columns
+      bed_df = re_list[['chrom', 'start', 'end', 'name']].copy()
+      
+      # Sort for BED
+      bed_df = bed_df.sort_values(['chrom', 'start', 'end']).reset_index(drop=True)
+      print()
+      print(bed_df.head())
+      
+
+
+      bed_result_path = f"{bed_result_dir}/{base_name}.bed"
+      bed_df.to_csv(bed_result_path, index=False, sep='\t')
+
+      print(edge_table.head())
+      cytoNet_result_path = f"{cytoNet_result_dir}/{base_name}.csv"
+      # Save
+      edge_table.to_csv(cytoNet_result_path, index=False)
+      print("\nSaved to cytoscape_edge_table.csv")
+#+END_SRC
+
+
+
+
+#+begin_src jupyter-python
+  import pandas as pd
+  import re
+
+  # Input file
+  SNP_file = "/project/zduren/durenlab/palmetto/cham/cocain/GWAS/GWAS_from_Trudy.tsv"
+
+
+  # Read GWAS table
+  snp_df = pd.read_csv(SNP_file, sep="\t", index_col=0)
+
+  # Reset index so Trait becomes a normal column
+  snp_df = snp_df.reset_index()
+
+  # Keep only rows with a valid Variant ID
+  snp_df = snp_df[snp_df["Variant ID"].notna()].copy()
+
+  # Parse Variant ID format like: 2L_10154525_T_C
+  def parse_variant_id(vid):
+      parts = str(vid).split("_")
+      if len(parts) < 4:
+          return None, None, None, None
+      chrom = parts[0]
+      pos = int(parts[1])
+      ref = parts[2]
+      alt = parts[3]
+      return chrom, pos, ref, alt
+
+  snp_df[["chrom", "pos", "ref", "alt"]] = snp_df["Variant ID"].apply(
+      lambda x: pd.Series(parse_variant_id(x))
+  )
+
+  # Drop rows that failed parsing
+  snp_df = snp_df[snp_df["chrom"].notna() & snp_df["pos"].notna()].copy()
+
+  # BED is 0-based start, half-open end
+  snp_df["start"] = snp_df["pos"] - 1
+  snp_df["end"] = snp_df["pos"]
+
+  # Optional BED score:
+  # use -log10(p-value), clipped to 1000 for BED compatibility
+  snp_df["score"] = (-snp_df["Wald Test P-Value"].astype(float).apply(lambda x: 0 if x <= 0 else -__import__("math").log10(x)))
+  snp_df["score"] = snp_df["score"].clip(upper=1000)
+
+  # BED name field
+  snp_df["name"] = snp_df["Gene Symbol"].astype(str) + "|" + snp_df["Variant ID"].astype(str)
+
+  # Optional strand: not known for SNPs, so use "."
+  #snp_df["strand"] = "."
+
+  # Make a BED6 file
+  #bed_df = snp_df[["chrom", "start", "end", "name", "score", "strand"]].copy()
+  bed_df = snp_df[["chrom", "start", "end", "Variant ID", "Trait", "name", "score", "Additive Effect (β)", "β Standard Error", "Wald Test P-Value",  "FlyBase ID", "Gene Symbol"]].copy()
+
+  # Sort for convenience
+  bed_df = bed_df.sort_values(["chrom", "start", "end"]).reset_index(drop=True)
+
+
+  # Save BED file
+  bed_df.to_csv("/project/zduren/durenlab/palmetto/cham/cocain/GWAS/gwas_snps.bed", sep="\t", header=False, index=False)
+
+  # Optional: save a fuller annotation table too
+  #snp_df.to_csv("./tmp/gwas_snps_annotated.csv", index=False)
+
+  print("Saved:")
+  print(" - ./tmp/gwas_snps.bed")
+  print(" - ./tmp/gwas_snps_annotated.csv")
+  print()
+  print(bed_df.head())
+  print(tabulate(snp_df.head(),headers='keys',tablefmt='org'))
+  print(snp_df.shape)
+
+
+#+end_src

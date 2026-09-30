@@ -1,0 +1,152 @@
+* RE SNP MAP
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import os
+  import pandas as pd
+  SNP_RE_map_dir = "/project/zduren/durenlab/palmetto/cham/cocain/GWAS/RE_SNP_MAP/"
+  SNP_RE_map_file_list = os.listdir(SNP_RE_map_dir)
+
+  print(SNP_RE_map_file_list)
+  SNP_RE_map_path = f"{SNP_RE_map_dir}/{SNP_RE_map_file_list[0]}"
+  #SNP_RE_map_df = pd.read_csv(SNP_RE_map_path, sep='\t')
+
+  #print(SNP_RE_map_df)
+  print(SNP_RE_map_path)
+
+#+END_SRC
+
+
+
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import os
+  import pandas as pd
+  from tabulate import tabulate
+
+  SNP_RE_map_dir = "/project/zduren/durenlab/palmetto/cham/cocain/GWAS/RE_SNP_MAP/"
+  SNP_RE_map_file_list = os.listdir(SNP_RE_map_dir)
+
+  for fname in SNP_RE_map_file_list:
+      file_path = os.path.join(SNP_RE_map_dir, fname)
+      # Skip if file is empty (size = 0)
+      if os.path.getsize(file_path) == 0:
+          print(f"Skipping empty file: {fname}")
+          continue
+
+      print(f"Processing: {fname}")
+      
+      SNP_RE_map_df = pd.read_csv(file_path, sep='\t',header=None)
+      SNP_RE_map_df.columns = ["chrom", "start", "end", "Variant ID", "Trait", "name", "score", "Additive Effect (β)", "β Standard Error", "Wald Test P-Value",  "FlyBase ID", "Gene Symbol",
+                               "RE CHR",  "RE start",  "RE end",  "RE loc"]
+      #SNP_RE_map_df = SNP_RE_map_df.set_index('RE loc')
+      print(tabulate(SNP_RE_map_df, headers='keys', tablefmt='org'))
+#+END_SRC
+
+
+
+
+* Load TF RE TG network
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import pandas as pd
+  from tabulate import tabulate
+  cytoNet_result_dir = "/project/zduren/durenlab/palmetto/cham/cocain/LINGER/RE_networks/"
+
+  # Input file
+  file_list = os.listdir(cytoNet_result_dir)
+  print(file_list)
+  print(f'{cytoNet_result_dir}/{file_list[0]}')
+  RE_df_ori_df = pd.read_csv(f'{cytoNet_result_dir}/{file_list[0]}')
+  print(RE_df_ori_df)
+#+END_SRC
+
+
+
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import os
+  import pandas as pd
+  import numpy as np
+
+  SNP_RE_map_dir = "/project/zduren/durenlab/palmetto/cham/cocain/GWAS/RE_SNP_MAP/"
+  cytoNet_result_dir = "/project/zduren/durenlab/palmetto/cham/cocain/LINGER/RE_networks/"
+  output_dir =  "/project/zduren/durenlab/palmetto/cham/cocain/LINGER/RE_SNP_TF_TG/"
+  os.makedirs(output_dir, exist_ok=True)
+
+  SNP_RE_map_file_list = [f for f in os.listdir(SNP_RE_map_dir) if f.endswith('.bed')]
+
+  for fname in SNP_RE_map_file_list:
+      cell_type = fname.replace('.bed', '')
+      bed_path = os.path.join(SNP_RE_map_dir, fname)
+      csv_path = os.path.join(cytoNet_result_dir, cell_type + '.csv')
+      
+      if not os.path.exists(csv_path):
+          print(f"Network file not found for {cell_type}, skipping.")
+          continue
+          
+      if os.path.getsize(bed_path) == 0:
+          print(f"Skipping empty SNP map file: {fname}")
+          continue
+
+      print(f"Processing: {cell_type}")
+      
+      # 1. Load TF-RE-TG network
+      edge_df = pd.read_csv(csv_path)
+      
+      # 2. Load SNP-RE map
+      snp_re_df = pd.read_csv(bed_path, sep='\t', header=None)
+      snp_re_df.columns = ["chrom", "start", "end", "Variant ID", "Trait", "name", "score", "Additive Effect (β)", "β Standard Error", "Wald Test P-Value",  "FlyBase ID", "Gene Symbol",
+                               "RE CHR",  "RE start",  "RE end",  "RE loc"]
+      
+      # 3. Create SNP-RE edges
+      # Weight is -score (which is -log10(p-value) based on analysis)
+      snp_edges = pd.DataFrame({
+          'source': snp_re_df['Variant ID'],
+          'target': snp_re_df['RE loc'],
+          'interaction': 'SNP-RE',
+          'weight': -snp_re_df['score']
+      })
+      
+      # 4. Filter edges to only include REs that have SNP associations
+      relevant_res = snp_edges['target'].unique()
+      
+      filtered_tf_re = edge_df[(edge_df['interaction'] == 'TF-RE') & (edge_df['target'].isin(relevant_res))]
+      filtered_re_tg = edge_df[(edge_df['interaction'] == 'RE-TG') & (edge_df['source'].isin(relevant_res))]
+      
+      combined_edge_df = pd.concat([filtered_tf_re, filtered_re_tg, snp_edges], ignore_index=True)
+      combined_edge_df.to_csv(f"{output_dir}/{cell_type}_edges.csv", index=False)
+      
+      # 5. Create node_df based on filtered edges
+      nodes = []
+      # TF nodes
+      tf_nodes = combined_edge_df[combined_edge_df['interaction'] == 'TF-RE']['source'].unique()
+      for n in tf_nodes:
+          nodes.append({'ID': n, 'type': 'TF'})
+          
+      # RE nodes
+      re_targets_tf = combined_edge_df[combined_edge_df['interaction'] == 'TF-RE']['target']
+      re_sources_tg = combined_edge_df[combined_edge_df['interaction'] == 'RE-TG']['source']
+      re_targets_snp = combined_edge_df[combined_edge_df['interaction'] == 'SNP-RE']['target']
+      re_nodes_list = pd.concat([re_targets_tf, re_sources_tg, re_targets_snp]).unique()
+      for n in re_nodes_list:
+          nodes.append({'ID': n, 'type': 'RE'})
+          
+      # TG nodes
+      tg_nodes = combined_edge_df[combined_edge_df['interaction'] == 'RE-TG']['target'].unique()
+      for n in tg_nodes:
+          nodes.append({'ID': n, 'type': 'TG'})
+          
+      # SNP nodes
+      snp_nodes = combined_edge_df[combined_edge_df['interaction'] == 'SNP-RE']['source'].unique()
+      for n in snp_nodes:
+          nodes.append({'ID': n, 'type': 'SNP'})
+          
+      node_df = pd.DataFrame(nodes).drop_duplicates(subset='ID')
+      node_df.to_csv(f"{output_dir}/{cell_type}_nodes.csv", index=False)
+      
+      print(f"  Saved {cell_type}_edges.csv and {cell_type}_nodes.csv")
+
+#+END_SRC
+

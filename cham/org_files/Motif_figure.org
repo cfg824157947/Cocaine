@@ -1,0 +1,304 @@
+* Generate Motif figure
+
+#+BEGIN_SRC jupyter-python
+  import pandas as pd
+  import logomaker
+  import matplotlib.pyplot as plt
+  import os
+
+  def plot_multiple_motifs(motif_file, motif_names, out_dir=None, figsize=(6, 2.5)):
+      """
+      Plot multiple motifs from a HOMER .motif file.
+
+      Parameters
+      ----------
+      motif_file : str
+          Path to HOMER .motif file.
+      motif_names : list of str
+          Motif names to extract (exact or partial match).
+      out_dir : str or None
+          If given, saves each motif logo as a PNG in this directory.
+      figsize : tuple
+          Figure size for each motif logo.
+      """
+
+      # read file once
+      with open(motif_file) as f:
+          lines = f.readlines()
+
+      for motif_name in motif_names:
+          pwm_lines = []
+          capture = False
+
+          for line in lines:
+              line = line.strip()
+              if line.startswith(">"):
+                  if capture:
+                      break  # stop when we reach next motif
+                  if motif_name in line:  # start capturing this motif
+                      capture = True
+                      continue
+              elif capture:
+                  pwm_lines.append(line)
+
+          if not pwm_lines:
+              print(f"⚠️ Motif '{motif_name}' not found.")
+              continue
+
+          # convert PWM to DataFrame
+          pwm = pd.DataFrame([list(map(float, x.split())) for x in pwm_lines],
+                             columns=["A", "C", "G", "T"])
+          pwm = pwm.div(pwm.sum(axis=1), axis=0)  # normalize per position
+
+          # plot
+          plt.figure(figsize=figsize)
+          logomaker.Logo(pwm, color_scheme="classic")
+          plt.title(motif_name, fontsize=12)
+          plt.xlabel("Position")
+          plt.ylabel("Probability")
+          plt.tight_layout()
+
+          # optionally save
+          if out_dir:
+              os.makedirs(out_dir, exist_ok=True)
+              out_path = os.path.join(out_dir, f"{motif_name.replace('/', '_')}.png")
+              plt.savefig(out_path, dpi=300, bbox_inches="tight")
+              print(f"✅ Saved: {out_path}")
+
+          plt.show()
+
+          return fig, axes  
+#+END_SRC
+
+#+RESULTS:
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import math
+  import pandas as pd
+  import logomaker
+  import matplotlib.pyplot as plt
+  import os
+
+  def plot_multiple_motifs(
+      motif_file,
+      motif_names,
+      ncols=4,
+      figsize_per_motif=(8, 3.5)
+  ):
+      """
+      Plot multiple motifs from a HOMER .motif file in an (n, m) subplot grid.
+
+      Parameters
+      ----------
+      motif_file : str
+          Path to HOMER .motif file.
+      motif_names : list of str
+          Motif names to extract (exact or partial match).
+      ncols : int
+          Number of columns in subplot grid.
+      out_dir : str or None
+          If given, saves the combined figure as a PNG.
+      figsize_per_motif : tuple
+          Size of each subplot (width, height).
+      """
+
+      # read file once
+      with open(motif_file) as f:
+          lines = f.readlines()
+
+      motifs = []
+
+      # extract PWMs
+      for motif_name in motif_names:
+          pwm_lines = []
+          capture = False
+
+          for line in lines:
+              line = line.strip()
+              if line.startswith(">"):
+                  if capture:
+                      break
+                  if motif_name in line:
+                      capture = True
+                      continue
+              elif capture:
+                  pwm_lines.append(line)
+
+          if not pwm_lines:
+              print(f"⚠️ Motif '{motif_name}' not found.")
+              continue
+
+          pwm = pd.DataFrame(
+              [list(map(float, x.split())) for x in pwm_lines],
+              columns=["A", "C", "G", "T"],
+          )
+          pwm = pwm.div(pwm.sum(axis=1), axis=0)
+          motifs.append((motif_name, pwm))
+
+      if not motifs:
+          raise ValueError("No motifs found.")
+
+      # grid size
+      n_motifs = len(motifs)
+      nrows = math.ceil(n_motifs / ncols)
+
+      fig, axes = plt.subplots(
+          nrows,
+          ncols,
+          figsize=(figsize_per_motif[0] * ncols,
+                   figsize_per_motif[1] * nrows),
+          squeeze=False
+      )
+
+      # plot motifs
+      for ax, (motif_name, pwm) in zip(axes.flat, motifs):
+          logomaker.Logo(pwm, ax=ax, color_scheme="classic")
+          ax.set_title(motif_name)
+          ax.set_xlabel("Position")
+          ax.set_ylabel("Prob")
+
+      # turn off unused axes
+      for ax in axes.flat[len(motifs):]:
+          ax.axis("off")
+
+      plt.tight_layout()
+
+      return fig, axes  
+#+END_SRC
+
+#+RESULTS:
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  import matplotlib as mpl
+  import matplotlib.font_manager as fm
+  import matplotlib as mpl
+
+  fm.fontManager.addfont("/project/zduren/durenlab/palmetto/cham/util_data/Arial.TTF")
+  fm.fontManager.addfont("/project/zduren/durenlab/palmetto/cham/util_data/Ariali.TTF")
+  mpl.rcParams['font.family'] = "Arial"
+  mpl.rcParams['font.sans-serif'] = ['Arial']
+  mpl.rcParams["font.family"] = "Arial"
+  mpl.rcParams["font.size"] = 12          # base font size
+  mpl.rcParams["axes.titlesize"] = 16
+  mpl.rcParams["axes.labelsize"] = 14
+  mpl.rcParams["xtick.labelsize"] = 12
+  mpl.rcParams["ytick.labelsize"] = 12
+  Motif_tf_file_name = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Data/Match_TF_motif_Drosophila_melanogaster.txt"
+  Motif_tf_df = pd.read_csv(Motif_tf_file_name,sep='\t',index_col=0)
+#+END_SRC
+
+#+RESULTS:
+
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  motif_file = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Data/all_motif_rmdup_fly"
+
+  motif_batch = 27
+  for batch_number in range(0, len(Motif_tf_df), motif_batch):
+      motif_list = Motif_tf_df.index[batch_number:batch_number+motif_batch]
+      fig, axex = plot_multiple_motifs(motif_file, motif_list, ncols=3, figsize_per_motif=(7, 3))
+      # set title for the entire figure
+      fig.suptitle(f"Motif Logos Batch {batch_number//motif_batch + 1}", fontsize=30)
+      plt.subplots_adjust(top=0.95)  # adjust to make room for suptitle
+
+      # save
+      out_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Figures/Figure_5/Motif_Logos"
+      os.makedirs(out_dir, exist_ok=True)
+      out_path = os.path.join(out_dir, f"motif_grid_batch_{batch_number//motif_batch + 1}.svg")
+      plt.savefig(out_path, dpi=300, bbox_inches="tight")
+      print(f"✅ Saved: {out_path}")
+          
+      plt.show()
+
+
+
+  # save
+  # os.makedirs(out_dir, exist_ok=True)
+  # out_path = os.path.join(out_dir, "motif_grid.png")
+  # plt.savefig(out_path, dpi=300, bbox_inches="tight")
+  # print(f"✅ Saved: {out_path}")
+          
+  plt.show()
+#+END_SRC
+
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  def plot_multiple_motifs(motif_file, motif_names, out_dir=None, figsize=(6, 2.5), show=True):
+     import pandas as pd
+     import logomaker
+     import matplotlib.pyplot as plt
+     import os
+
+     with open(motif_file) as f:
+         lines = f.readlines()
+
+     for motif_name in motif_names:
+         pwm_lines = []
+         capture = False
+
+         for line in lines:
+             line = line.strip()
+             if line.startswith(">"):
+                 if capture:
+                     break
+                 if motif_name in line:
+                     capture = True
+                     continue
+             elif capture:
+                 pwm_lines.append(line)
+
+         if not pwm_lines:
+             print(f"⚠️ Motif '{motif_name}' not found.")
+             continue
+
+         pwm = pd.DataFrame(
+             [list(map(float, x.split())) for x in pwm_lines],
+             columns=["A", "C", "G", "T"]
+         )
+         pwm = pwm.div(pwm.sum(axis=1), axis=0)
+
+         fig, ax = plt.subplots(figsize=figsize)
+         logomaker.Logo(pwm, ax=ax, color_scheme="classic")
+         ax.set_title(motif_name, fontsize=12)
+         ax.set_xlabel("Position")
+         ax.set_ylabel("Probability")
+
+         plt.tight_layout()
+
+         if out_dir:
+             os.makedirs(out_dir, exist_ok=True)
+             out_path = os.path.join(out_dir, f"{motif_name.replace('/', '_')}.png")
+             fig.savefig(out_path, dpi=300, bbox_inches="tight")
+             print(f"✅ Saved: {out_path}")
+
+         if show:
+            print(show)
+            plt.show()
+         else:
+            plt.close(fig)
+
+#+END_SRC
+
+#+RESULTS:
+
+
+#+BEGIN_SRC jupyter-python :session /jpy:localhost#8888:cham_test2 :kernel VCC :async yes
+  motif_file = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Data/all_motif_rmdup_fly"
+
+  Motif_tf_file_name = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Data/Match_TF_motif_Drosophila_melanogaster.txt"
+  Motif_tf_df = pd.read_csv(Motif_tf_file_name,sep='\t',index_col=0)
+  motif_list = [
+      "onecut/MA0235.1/Jaspar",
+      "HHEX/MA0183.1/Jaspar",
+
+  ]
+  print(Motif_tf_df.index)
+  motif_list = Motif_tf_df.index
+  out_dir = "/project/zduren/durenlab/palmetto/cham/cocain/Final/git_handle/Cocaine/Paper_doc/Figures/motif_separate/"
+  plot_multiple_motifs(motif_file, motif_list, out_dir=out_dir, show=False)
+#+END_SRC
+
